@@ -1,0 +1,1 @@
+export default function P(){return <div style={{padding:30}}><h1>Events</h1></div>}

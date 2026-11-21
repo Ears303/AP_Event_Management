@@ -1,0 +1,1 @@
+export default function ResultPanel(){return <div>Result Panel</div>}

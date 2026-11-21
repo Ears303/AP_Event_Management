@@ -1,0 +1,1 @@
+export default function Page(){return <div style={{padding:40}}><h1>AP Timing Live</h1><p>Use /manager or /display</p></div>}

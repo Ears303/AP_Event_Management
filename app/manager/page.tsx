@@ -1,0 +1,1 @@
+export default function Manager(){return <div style={{padding:30}}><h1>AP Timing Manager</h1><p>Event selection, results entry and publishing screen.</p></div>}

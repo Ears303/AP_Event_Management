@@ -1,0 +1,1 @@
+Connect Supabase. Build CRUD manager. Connect display to live results. Deploy to Vercel.
