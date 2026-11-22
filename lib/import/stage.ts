@@ -2,6 +2,10 @@
 // Flow: parse the CSV (importRace / importPoints) -> show the preview -> stage -> publish.
 // Staging saves the rows UNPUBLISHED; the public only sees them after publishImport().
 import type { SupabaseClient } from "@supabase/supabase-js";
+
+// Any Supabase client, whichever database schema it was created for (ours uses "aptiming").
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyClient = SupabaseClient<any, any, any>;
 import type { RaceImportResult } from "./importRace";
 import type { ImportResult } from "./importPoints";
 
@@ -12,7 +16,7 @@ export function raceNumberFromLabel(label: string): number | null {
 }
 
 export async function stageRaceImport(
-  supabase: SupabaseClient,
+  supabase: AnyClient,
   eventId: string,
   filename: string,
   result: RaceImportResult,
@@ -33,7 +37,7 @@ export async function stageRaceImport(
 }
 
 export async function stagePointsImport(
-  supabase: SupabaseClient,
+  supabase: AnyClient,
   eventId: string,
   filename: string,
   result: ImportResult
@@ -51,7 +55,7 @@ export async function stagePointsImport(
 
 // Makes a staged import public. Replaces earlier published rows for the same race
 // (or the same classes, for points), including live provisional rows.
-export async function publishImport(supabase: SupabaseClient, importId: string): Promise<void> {
+export async function publishImport(supabase: AnyClient, importId: string): Promise<void> {
   const { error } = await supabase.rpc("publish_import", { p_import: importId });
   if (error) throw new Error(error.message);
 }
