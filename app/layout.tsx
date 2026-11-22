@@ -25,24 +25,13 @@ export default function RootLayout({
             }}
           />
 
-          <div>
-            <div
-              style={{
-                fontSize: "32px",
-                fontWeight: "bold",
-                color: "#003366",
-              }}
-            >
-              AP Timing
-            </div>
-
-            <div
-              style={{
-                color: "#666666",
-              }}
-            >
-              Event Management & Live Results
-            </div>
+          <div
+            style={{
+              color: "#666666",
+              fontSize: "18px",
+            }}
+          >
+            Event Management & Live Results
           </div>
         </div>
 
