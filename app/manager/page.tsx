@@ -6,6 +6,9 @@ import type { Session } from "@supabase/supabase-js";
 import { supabase, supabaseConfigured } from "../../lib/supabase";
 import { detectCsvKind, importRace } from "../../lib/import/importRace";
 import type { RaceImportResult } from "../../lib/import/importRace";
+import readXlsxFile from "read-excel-file";
+import { parseSchedule } from "../../lib/import/importSchedule";
+import type { ScheduleResult } from "../../lib/import/importSchedule";
 import { importPoints } from "../../lib/import/importPoints";
 import type { ImportResult } from "../../lib/import/importPoints";
 import {
@@ -196,6 +199,8 @@ export default function Manager() {
         </div>
       )}
 
+      <ScheduleCard eventId={eventId} eventDate={events.find((e) => e.id === eventId)?.start_date ?? null} setMessage={setMessage} />
+
       <div style={card}>
         <h2 style={h2}>1. Choose a MyLaps CSV</h2>
         <input type="file" accept=".csv,text/csv" onChange={(e) => void onFile(e.target.files?.[0])} aria-label="Results file" />
@@ -332,5 +337,72 @@ function PointsTable({ result }: { result: ImportResult }) {
         </div>
       ))}
     </>
+  );
+}
+
+// Upload the event's race schedule (Excel). Needs columns Race and Class; Moto, Time, Date and Holeshot are optional.
+function ScheduleCard({ eventId, eventDate, setMessage }: { eventId: string; eventDate: string | null; setMessage: (m: Message) => void }) {
+  const [res, setRes] = useState<ScheduleResult | null>(null);
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState<number | null>(null);
+
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f) return;
+    setSaved(null); setName(f.name);
+    try {
+      const rows = (await readXlsxFile(f)) as unknown[][];
+      setRes(parseSchedule(rows, eventDate));
+    } catch (err) {
+      setRes({ rows: [], warnings: [], errors: ["Could not read that file as an Excel sheet (.xlsx): " + (err instanceof Error ? err.message : String(err))] });
+    }
+  }
+
+  async function save() {
+    if (!res || !eventId) return;
+    setBusy(true);
+    const { data, error } = await supabase.rpc("stage_schedule", { p_event: eventId, p_rows: res.rows });
+    setBusy(false);
+    if (error) { setMessage({ type: "error", text: "Could not save schedule: " + error.message }); return; }
+    setSaved(Number(data)); setRes(null);
+    setMessage({ type: "ok", text: `Schedule saved: ${data} races.` });
+  }
+
+  const hs = res?.rows.filter((r) => r.holeshot).length ?? 0;
+  return (
+    <div style={card}>
+      <h2 style={h2}>Race schedule (Excel)</h2>
+      <input type="file" accept=".xlsx" aria-label="Schedule file" onChange={(e) => void onFile(e)} />
+      <div style={{ color: "#64748b", fontSize: 13, marginTop: 6 }}>
+        Columns: Race, Class (required); Time, Date, Moto, Holeshot (optional). Put Y in Holeshot for races that have a holeshot prize. Uploading again updates the schedule; results are kept.
+      </div>
+      {saved !== null && <div style={{ marginTop: 8 }}>Saved {saved} races.</div>}
+      {res && (
+        <div style={{ marginTop: 10 }}>
+          {res.errors.length > 0 && <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 6, padding: 8, marginBottom: 8 }}><strong>Fix these before saving:</strong><ul>{res.errors.map((m, i) => <li key={i}>{m}</li>)}</ul></div>}
+          {res.warnings.length > 0 && <div style={{ background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 6, padding: 8, marginBottom: 8 }}><strong>to check:</strong><ul>{res.warnings.map((m, i) => <li key={i}>{m}</li>)}</ul></div>}
+          {res.rows.length > 0 && (
+            <>
+              <div style={{ marginBottom: 6, fontWeight: 600 }}>{name} - {res.rows.length} races, {hs} with holeshots</div>
+              <div style={{ overflowX: "auto", maxHeight: 320, overflowY: "auto" }}>
+                <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                  <thead><tr>{["Race", "Class", "Moto", "Time", "Holeshot"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {res.rows.map((r, i) => (
+                      <tr key={i}><td style={td}>{r.raceNo}</td><td style={td}>{r.className}</td><td style={td}>{r.moto ?? "-"}</td><td style={td}>{r.timeText ?? "-"}</td><td style={td}>{r.holeshot ? "Yes" : "-"}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+          <button style={{ ...button, marginTop: 10, opacity: res.errors.length || busy || !eventId ? 0.5 : 1 }} disabled={res.errors.length > 0 || busy || !eventId || !res.rows.length} onClick={() => void save()}>
+            {busy ? "Saving..." : "Save schedule"}
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

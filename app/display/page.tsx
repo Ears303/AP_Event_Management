@@ -24,6 +24,7 @@ type Row = {
 };
 type EventInfo = { id: string; event_name: string; venue: string | null };
 type RaceResults = { race: number; live: boolean; rows: Row[] };
+type Upcoming = { race: number; cls: string; moto: number | null; time: string | null; holeshot: boolean };
 type Panel = { cls: string; order: number; races: RaceResults[]; maxRows: number };
 
 const NAVY = "#003366";
@@ -90,6 +91,7 @@ export default function Display() {
   const [event, setEvent] = useState<EventInfo | null>(null);
   const [panels, setPanels] = useState<Panel[]>([]);
   const [notes, setNotes] = useState<string[]>([]);
+  const [next, setNext] = useState<Upcoming[]>([]);
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [tick, setTick] = useState(0);
@@ -129,6 +131,20 @@ export default function Display() {
       const ann = await supabase.from("announcements").select("message").eq("event_id", ev.id).eq("active", true)
         .order("created_at", { ascending: false }).limit(3);
       if (stop) return;
+      // Schedule (optional: empty until a schedule is uploaded / 003_schedule.sql is run).
+      const sched = await supabase.from("races").select("race_number,moto,holeshot,scheduled_time,classes(class_name)")
+        .eq("event_id", ev.id).order("race_number", { ascending: true });
+      if (stop) return;
+      const done = new Set<string>();
+      for (const r of all) { const rc = one(r.races); const c = one(rc?.classes ?? null); if (rc && c) done.add(`${rc.race_number}|${c.class_name}`); }
+      const upcoming: Upcoming[] = [];
+      for (const s of (sched.data ?? []) as unknown as { race_number: number | null; moto: number | null; holeshot: boolean | null; scheduled_time: string | null; classes: ClassInfo | ClassInfo[] | null }[]) {
+        const c = one(s.classes);
+        if (!c || s.race_number == null || done.has(`${s.race_number}|${c.class_name}`)) continue;
+        upcoming.push({ race: s.race_number, cls: c.class_name, moto: s.moto, holeshot: !!s.holeshot,
+          time: s.scheduled_time ? new Date(s.scheduled_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : null });
+      }
+      setNext(upcoming.slice(0, 3));
       setError("");
       setPanels(buildPanels(all));
       setNotes(((ann.data ?? []) as { message: string }[]).map((a) => a.message));
@@ -202,6 +218,20 @@ export default function Display() {
           {panels.map((p) => <ClassPanel key={p.cls} panel={p} tick={tick} />)}
         </div>
       </div>
+
+      {next.length > 0 && (
+        <div data-testid="next" style={{ display: "flex", margin: "0 16px 8px", background: "#fff", border: "1px solid #dbe3ee", borderRadius: 6, overflow: "hidden", flex: "none" }}>
+          <div style={{ background: "#0b5fff", color: "#fff", padding: "8px 16px", fontWeight: 800, display: "flex", alignItems: "center" }}>NEXT RACE</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 28px", padding: "8px 16px", fontSize: 16, alignItems: "center" }}>
+            {next.map((n, i) => (
+              <span key={n.race + n.cls} style={{ opacity: i === 0 ? 1 : 0.7, fontWeight: i === 0 ? 700 : 400 }}>
+                Race {n.race} • {n.cls}{n.moto ? ` • Moto ${n.moto}` : ""}{n.time ? ` • ${n.time}` : ""}
+                {n.holeshot && <span style={{ marginLeft: 8, background: "#fdf3c8", border: "1px solid #e6c84f", borderRadius: 4, padding: "0 6px", fontSize: 12, fontWeight: 700 }}>HOLESHOT</span>}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {notes.length > 0 && (
         <div style={{ display: "flex", margin: "0 16px 12px", background: "#fff", border: "1px solid #dbe3ee", borderRadius: 6, overflow: "hidden", flex: "none" }}>
