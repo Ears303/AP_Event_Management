@@ -39,10 +39,12 @@ export default function RootLayout({
             {[
               ["/manager/event", "Set up event"],
               ["/manager", "Import results"],
+              ["/display", "Display"],
             ].map(([href, label]) => (
               <a
                 key={href}
                 href={href}
+                {...(href === "/display" ? { target: "_blank", rel: "noopener" } : {})}
                 style={{
                   padding: "10px 18px",
                   borderRadius: "6px",

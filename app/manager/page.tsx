@@ -175,6 +175,7 @@ export default function Manager() {
             </option>
           ))}
         </select>
+        {eventId && <a href={`/display?event=${eventId}`} target="_blank" rel="noopener" style={{ color: "#0b5fff", fontWeight: 600 }}>View display for this event &#8599;</a>}
         <span style={{ flex: 1 }} />
         <span style={{ color: "#64748b", fontSize: 14 }}>{session.user.email}</span>
         <button style={{ ...button, background: "#475569" }} onClick={() => void supabase.auth.signOut()}>Sign out</button>
