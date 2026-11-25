@@ -14,6 +14,6 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   check("retried after first send failed", logs.some((l) => /retry/.test(l)));
   check("reconnected after feed dropped", conns >= 2 && logs.some((l) => /reconnecting/.test(l)), conns);
   const last = calls[calls.length - 1].a.p_rows; check("13 riders over 3 grades, positions correct", last.length === 13 && last[0].name === "DEEGAN FORT" && last.find((r) => r.raceNo === "29").pic === 1 && last.find((r) => r.raceNo === "29").pos === 3);
-  check("identical data not re-sent every tick", calls.length <= 3, calls.length);
+  check("identical data not re-sent every tick (only a periodic refresh)", calls.length <= 3, calls.length);
   b.stop(); srv.close(); console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);
 })();

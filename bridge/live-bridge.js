@@ -10,7 +10,7 @@ function createBridge({ cfg, rpc, log = console.log, connect = (h, p) => net.con
   const state = new FeedState();
   const pushEvery = (cfg.pushEverySeconds ?? 2) * 1000;
   const rawLog = cfg.saveRaw ? path.join(__dirname, "feed-raw.log") : null;
-  let lastPush = 0, lastHash = "", lastRace = null, sock = null, stopped = false, timer = null, reconnect = null, bytes = 0;
+  let lastSent = 0, lastPush = 0, lastHash = "", lastRace = null, sock = null, stopped = false, timer = null, reconnect = null, bytes = 0;
 
   async function maybePush(force) {
     if (!state.dirty && !force) return;
@@ -19,11 +19,11 @@ function createBridge({ cfg, rpc, log = console.log, connect = (h, p) => net.con
     if (snap.race == null || snap.rows.length === 0) { state.dirty = false; return; } // never wipe results with an empty snapshot
     const hash = snap.race + JSON.stringify(snap.rows);
     state.dirty = false;
-    if (hash === lastHash) return;
+    if (hash === lastHash && Date.now() - lastSent < 20000) return; // identical data is re-sent every 20 s so the 'live' flag stays fresh
     lastPush = Date.now();
     try {
       await rpc("live_update_race", { p_event: cfg.eventId, p_race_number: snap.race, p_rows: snap.rows });
-      lastHash = hash;
+      lastHash = hash; lastSent = Date.now();
       if (snap.race !== lastRace) { log(`Race ${snap.race}: sending results (${snap.rows.length} riders)`); lastRace = snap.race; }
       else log(`${new Date().toLocaleTimeString()}  race ${snap.race}  ${snap.rows.length} riders  ${snap.flag || ""}`);
     } catch (e) {
@@ -49,7 +49,7 @@ function createBridge({ cfg, rpc, log = console.log, connect = (h, p) => net.con
 
   return {
     state,
-    start() { open(); timer = setInterval(() => void maybePush(false), 1000); },
+    start() { open(); timer = setInterval(() => void maybePush(lastSent > 0 && Date.now() - lastSent >= 20000), 1000); },
     flush: () => maybePush(true),
     tick: () => maybePush(false),
     stop() { stopped = true; clearInterval(timer); clearTimeout(reconnect); if (sock) sock.destroy(); },

@@ -37,7 +37,9 @@ const BLUE = "#0b5fff"; // tile header rows and bottom-bar labels
 const ROTATE_MS = 8000;
 const REFRESH_MS = 10000;
 const PAGE = 1000; // Supabase returns at most 1000 rows per request
-const PAGE_ROWS = 20; // most riders shown at once in a tile; longer races roll through in equal pages
+let PAGE_ROWS = 20; // most riders shown at once in a tile; longer races roll through in equal pages. Lowered automatically when the screen is small so text stays readable.
+const PAGE_CAPS = [20, 16, 14, 12, 10, 8];
+const READABLE_SCALE = 0.85; // target text scale (1 = 26px rows); the page size is reduced until tiles can be drawn at least this big
 
 // Split a race into equal pages of at most PAGE_ROWS riders (40 -> 20 + 20, 25 -> 13 + 12).
 const pagesNeeded = (n: number) => Math.max(1, Math.ceil(n / PAGE_ROWS));
@@ -52,7 +54,8 @@ const BASE_W = 460, GAP = 10;
 const BORDER = 3 /* 2 outer + 1 divider under the race bar */, TITLE_H = 50, SUB_H = 26, THEAD_H = 20, ROW_H = 26, PAD_B = 4;
 const HS_H = 26; // holeshot line at the foot of a tile (only for classes that have a holeshot entered)
 const panelHeight = (rows: number, hs = false) => BORDER + TITLE_H + SUB_H + THEAD_H + rows * ROW_H + PAD_B + (hs ? HS_H : 0);
-const panelH = (p: Panel) => panelHeight(p.maxRows, Object.keys(p.holes).length > 0);
+const rowsOf = (p: Panel) => (p.races.length ? Math.max(...p.races.map((r) => pageSize(r.rows.length))) : p.maxRows);
+const panelH = (p: Panel) => panelHeight(rowsOf(p), Object.keys(p.holes).length > 0);
 
 const one = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? v[0] ?? null : v);
 
@@ -187,7 +190,13 @@ export default function Display() {
       // Which races are being timed right now (flag set by the live feed; ignored if the column isn't there yet).
       const lv = await supabase.from("races").select("race_number,classes(class_name)").eq("event_id", ev.id).eq("is_live", true);
       const liveRaces = new Set<string>();
-      if (Array.isArray(lv.data)) for (const x of lv.data as unknown as { race_number: number | null; classes: ClassInfo | ClassInfo[] | null }[]) { const c = one(x.classes); if (c && x.race_number != null) liveRaces.add(`${x.race_number}|${c.class_name}`); }
+      if (!lv.error && Array.isArray(lv.data)) for (const x of lv.data as unknown as { race_number: number | null; classes: ClassInfo | ClassInfo[] | null }[]) { const c = one(x.classes); if (c && x.race_number != null) liveRaces.add(`${x.race_number}|${c.class_name}`); }
+      if (lv.error) {
+        // Database not updated yet (007): treat the newest race that has provisional results as the live one.
+        let top = -1;
+        for (const r of all) { const rc = one(r.races); if (r.provisional && rc?.race_number != null) top = Math.max(top, rc.race_number); }
+        for (const r of all) { const rc = one(r.races); const c = one(rc?.classes ?? null); if (r.provisional && rc && c && rc.race_number === top) liveRaces.add(`${top}|${c.class_name}`); }
+      }
       if (stop) return;
       setLiveClasses(Array.from(new Set(Array.from(liveRaces).map((k) => k.slice(k.indexOf("|") + 1)))));
       setPanels(buildPanels(all, holes, liveRaces));
@@ -225,6 +234,7 @@ export default function Display() {
   const layout = bestLayout(zones.length ? [] : panels, size.w - 16, size.h - 8);
   const zoneMode = zones.length > 0;
   const shownZones = zoneMode ? withLiveArea(withExtraClasses(zones, panels, liveClasses), liveClasses) : zones;
+  PAGE_ROWS = zoneMode && size.w > 0 ? choosePageRows(shownZones, panels, size.w - 16, size.h - 8) : 20;
   const zoneView = zoneMode ? buildZoneView(shownZones, panels, size.w - 16, size.h - 8) : null;
   const left = Math.max(0, (size.w - layout.width * layout.scale) / 2);
   const top = Math.max(0, (size.h - layout.height * layout.scale) / 2);
@@ -277,7 +287,8 @@ export default function Display() {
                 </div>
               );
               if (z.zone_type !== "results") return <div key={z.zone_no} style={cell} />;
-              const blocks = zoneView.blocksFor(z);
+              const chunks = zoneView.chunksFor(z);
+              const blocks = chunks.length ? chunks[tick % chunks.length] : [];
               const lay = zoneView.layoutFor(z);
               return (
                 <div key={z.zone_no} data-testid={`zone-${z.zone_no}`} data-scale={lay.scale.toFixed(3)} style={cell}>
@@ -378,17 +389,33 @@ function buildZoneView(zones: Zone[], panels: Panel[], w: number, h: number) {
   const cellH = Math.max(1, Math.floor((h - (rows - 1) * GAP) / rows));
   const blocksFor = (z: Zone): Panel[] =>
     z.class_names.map((n) => byName.get(n) ?? { cls: n, order: 0, races: [], maxRows: 3, holes: {} });
-  // One scale for every results area so the text is the same size on all tiles (set by the tallest area).
-  const fitScale = (z: Zone) => {
-    const b = blocksFor(z);
-    if (!b.length) return ZONE_MAX_SCALE;
-    const contentH = b.reduce((t, p) => t + panelH(p), 0) + (b.length - 1) * GAP;
-    return Math.min(cellH / contentH, cellW / BASE_W, ZONE_MAX_SCALE);
-  };
-  let minScale = ZONE_MAX_SCALE;
-  for (const z of zones) if (z.zone_type === "results") minScale = Math.min(minScale, fitScale(z));
+  // One scale for every results area so the text is the same size on all tiles. It is set by the tallest single tile;
+  // areas holding several classes show as many as fit and rotate through the rest.
+  let minScale = Math.min(cellW / BASE_W, ZONE_MAX_SCALE);
+  for (const z of zones) if (z.zone_type === "results") for (const p of blocksFor(z)) minScale = Math.min(minScale, cellH / panelH(p));
   const layoutFor = (_z: Zone) => ({ scale: minScale, innerW: cellW / minScale });
-  return { rows, cellW, cellH, scale: minScale, blocksFor, layoutFor };
+  const chunksFor = (z: Zone): Panel[][] => {
+    const limit = cellH / minScale, out: Panel[][] = []; let cur: Panel[] = [], h = 0;
+    for (const p of blocksFor(z)) {
+      const ph = panelH(p) + (cur.length ? GAP : 0);
+      if (cur.length && h + ph > limit) { out.push(cur); cur = []; h = 0; }
+      cur.push(p); h += panelH(p) + (cur.length > 1 ? GAP : 0);
+    }
+    if (cur.length) out.push(cur);
+    return out;
+  };
+  return { rows, cellW, cellH, scale: minScale, maxScale: Math.min(cellW / BASE_W, ZONE_MAX_SCALE), blocksFor, layoutFor, chunksFor };
+}
+
+// Pick the biggest page size (most riders per tile page) that still lets tiles be drawn at a readable size.
+function choosePageRows(zones: Zone[], panels: Panel[], w: number, h: number): number {
+  for (const cap of PAGE_CAPS) {
+    PAGE_ROWS = cap;
+    const v = buildZoneView(zones, panels, w, h);
+    // The width of the screen limits the text size too, so only shrink pages while height is the limit.
+    if (v.scale >= Math.min(READABLE_SCALE, v.maxScale) - 0.001) return cap;
+  }
+  return PAGE_CAPS[PAGE_CAPS.length - 1];
 }
 
 // Sponsor logos scroll upwards in a continuous loop (static when they all fit in the box).
@@ -442,7 +469,7 @@ function ClassPanel({ panel, tick }: { panel: Panel; tick: number }) {
           </span>
         )}
       </div>
-      <div style={{ height: THEAD_H + panel.maxRows * ROW_H + PAD_B + (Object.keys(panel.holes).length ? HS_H : 0), position: "relative" }}>
+      <div style={{ height: THEAD_H + rowsOf(panel) * ROW_H + PAD_B + (Object.keys(panel.holes).length ? HS_H : 0), position: "relative" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
           <colgroup><col style={{ width: 54 }} /><col style={{ width: 46 }} /><col /><col style={{ width: 40 }} /><col style={{ width: 92 }} /><col style={{ width: 84 }} /></colgroup>
           <thead>
