@@ -1,3 +1,6 @@
 .next/
 node_modules/
 tsconfig.tsbuildinfo
+bridge/config.json
+bridge/node_modules
+bridge/*.bin

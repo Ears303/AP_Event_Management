@@ -1,0 +1,11 @@
+{
+  "supabaseUrl": "https://YOUR-PROJECT.supabase.co",
+  "supabaseAnonKey": "YOUR-ANON-PUBLIC-KEY",
+  "email": "your-timing-login@example.com",
+  "password": "your password",
+  "eventName": "Part of the event name (or use eventId instead)",
+  "eventId": "",
+  "feedHost": "192.168.1.241",
+  "feedPort": 50000,
+  "pushEverySeconds": 2
+}
