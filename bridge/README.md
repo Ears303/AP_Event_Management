@@ -21,3 +21,8 @@ CSV for a race replaces them, and a race that already has final results is never
 ## If live results look wrong
 Add `"saveRaw": true` to config.json and restart. Everything the feed sends is saved to `feed-raw.log` in the bridge folder.
 Send that file (and a screenshot of the window) so the problem can be replayed exactly.
+
+## Live flag
+A race is marked LIVE while lap crossings keep arriving. After 5 minutes with no change the bridge marks it as no longer
+live (results stay provisional until the final CSV is imported). Change with `"liveTimeoutMinutes"` in config.json.
+The feed shows whichever session the timing software has open, so open the current race there.

@@ -8,9 +8,10 @@ const { FeedState } = require("./parseFeed");
 
 function createBridge({ cfg, rpc, log = console.log, connect = (h, p) => net.connect(p, h) }) {
   const state = new FeedState();
+  const quietMs = (cfg.liveTimeoutMinutes ?? 5) * 60000;
   const pushEvery = (cfg.pushEverySeconds ?? 2) * 1000;
   const rawLog = cfg.saveRaw ? path.join(__dirname, "feed-raw.log") : null;
-  let lastSent = 0, lastPush = 0, lastHash = "", lastRace = null, sock = null, stopped = false, timer = null, reconnect = null, bytes = 0;
+  let lastChangeAt = Date.now(), ended = false, lastSent = 0, lastPush = 0, lastHash = "", lastRace = null, sock = null, stopped = false, timer = null, reconnect = null, bytes = 0;
 
   async function maybePush(force) {
     if (!state.dirty && !force) return;
@@ -19,6 +20,8 @@ function createBridge({ cfg, rpc, log = console.log, connect = (h, p) => net.con
     if (snap.race == null || snap.rows.length === 0) { state.dirty = false; return; } // never wipe results with an empty snapshot
     const hash = snap.race + JSON.stringify(snap.rows);
     state.dirty = false;
+    if (hash !== lastHash) { lastChangeAt = Date.now(); ended = false; }
+    if (ended) return;
     if (hash === lastHash && Date.now() - lastSent < 20000) return; // identical data is re-sent every 20 s so the 'live' flag stays fresh
     lastPush = Date.now();
     try {
@@ -30,6 +33,17 @@ function createBridge({ cfg, rpc, log = console.log, connect = (h, p) => net.con
       state.dirty = true; // try again next tick
       log("Could not send results (will retry): " + (e && e.message ? e.message : e));
     }
+  }
+
+  // No lap crossings for a while = nothing is being timed: tell the app the race is no longer live (results stay provisional).
+  async function tickAll() {
+    const quiet = lastSent > 0 && Date.now() - lastChangeAt > quietMs;
+    if (quiet && !ended) {
+      try { await rpc("live_end", { p_event: cfg.eventId }); ended = true; log(`No timing activity for ${quietMs / 60000} min - race marked as no longer live.`); }
+      catch (e) { ended = true; log("Could not mark race as ended: " + (e && e.message ? e.message : e)); }
+      return;
+    }
+    await maybePush(!ended && lastSent > 0 && Date.now() - lastSent >= 20000);
   }
 
   function open() {
@@ -49,9 +63,9 @@ function createBridge({ cfg, rpc, log = console.log, connect = (h, p) => net.con
 
   return {
     state,
-    start() { open(); timer = setInterval(() => void maybePush(lastSent > 0 && Date.now() - lastSent >= 20000), 1000); },
+    start() { open(); timer = setInterval(() => void tickAll(), 1000); },
     flush: () => maybePush(true),
-    tick: () => maybePush(false),
+    tick: tickAll,
     stop() { stopped = true; clearInterval(timer); clearTimeout(reconnect); if (sock) sock.destroy(); },
     get bytes() { return bytes; },
   };

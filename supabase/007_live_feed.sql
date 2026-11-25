@@ -56,6 +56,19 @@ begin
   return v_n;   -- number of classes updated
 end $$;
 
+-- Called by the bridge when the feed has gone quiet: nothing is being timed any more (results stay provisional).
+create or replace function aptiming.live_end(p_event uuid)
+returns int language plpgsql security definer set search_path = aptiming, public as $$
+declare v_n int;
+begin
+  if not aptiming.can_manage_event(p_event) then raise exception 'not allowed for this event' using errcode = '42501'; end if;
+  update aptiming.races set is_live = false where event_id = p_event and is_live;
+  get diagnostics v_n = row_count;
+  return v_n;
+end $$;
+
 revoke all on function aptiming.live_update_race(uuid, int, jsonb) from public, anon;
+revoke all on function aptiming.live_end(uuid) from public, anon;
+grant execute on function aptiming.live_end(uuid) to authenticated;
 grant execute on function aptiming.live_update_race(uuid, int, jsonb) to authenticated;
 notify pgrst, 'reload schema';
