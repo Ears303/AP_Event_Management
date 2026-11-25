@@ -66,7 +66,7 @@ function Editor() {
   useEffect(() => { void load(); }, [load]);
 
   function setType(i: number, type: Area["type"]) {
-    setAreas((cur) => cur.map((a, k) => (k === i ? { type, classNames: type === "results" ? a.classNames : [] } : a)));
+    setAreas((cur) => cur.map((a, k) => (k === i ? { type, classNames: type === a.type ? a.classNames : [] } : a)));
   }
   // A class lives in one area only: ticking it here removes it from any other area.
   function toggleClass(i: number, name: string, on: boolean) {
@@ -74,6 +74,10 @@ function Editor() {
       if (k === i) return { ...a, classNames: on ? [...a.classNames.filter((n) => n !== name), name] : a.classNames.filter((n) => n !== name) };
       return a.classNames.includes(name) && on ? { ...a, classNames: a.classNames.filter((n) => n !== name) } : a;
     }));
+  }
+  // Sponsor areas keep the ids of the chosen sponsors in the same list (none ticked = all sponsors).
+  function toggleSponsor(i: number, id: string, on: boolean) {
+    setAreas((cur) => cur.map((a, k) => (k === i ? { ...a, classNames: on ? [...a.classNames.filter((n) => n !== id), id] : a.classNames.filter((n) => n !== id) } : a)));
   }
   const where = (name: string) => areas.findIndex((a) => a.classNames.includes(name));
 
@@ -187,7 +191,17 @@ function Editor() {
                 })}
               </div>
             )}
-            {a.type === "sponsors" && <div style={{ color: "#64748b", fontSize: 14 }}>Shows this event&apos;s sponsor logos ({sponsors.length}).</div>}
+            {a.type === "sponsors" && (
+              <div style={{ maxHeight: 190, overflowY: "auto", fontSize: 14 }}>
+                <div style={{ color: "#64748b", marginBottom: 4 }}>Logos scroll through this area. Tick the sponsors to show here - none ticked shows all.</div>
+                {sponsors.length === 0 && <div style={{ color: "#64748b" }}>No sponsors yet - add logos below.</div>}
+                {sponsors.map((sp) => (
+                  <label key={sp.id} style={{ display: "block", padding: "2px 0", overflowWrap: "anywhere" }}>
+                    <input type="checkbox" checked={a.classNames.includes(sp.id)} onChange={(e) => toggleSponsor(i, sp.id, e.target.checked)} aria-label={`Area ${i + 1} sponsor: ${sp.name}`} /> {sp.name}
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>

@@ -28,7 +28,7 @@ type EventInfo = { id: string; event_name: string; venue: string | null };
 type RaceResults = { race: number; live: boolean; rows: Row[] };
 type Upcoming = { race: number; cls: string; moto: number | null; time: string | null; holeshot: boolean };
 type Zone = { zone_no: number; zone_type: string; class_names: string[] };
-type Sponsor = { name: string; image: string };
+type Sponsor = { id: string; name: string; image: string };
 type Holeshot = { no: number; name: string | null };
 type Panel = { cls: string; order: number; races: RaceResults[]; maxRows: number; holes: Record<number, Holeshot> };
 
@@ -167,12 +167,12 @@ export default function Display() {
       setNext(upcoming.slice(0, 3));
       // Screen layout (optional): up to 10 areas, each a stack of classes, the sponsors, or empty.
       const zr = await supabase.from("display_zones").select("zone_no,zone_type,class_names").eq("event_id", ev.id).order("zone_no");
-      const sr = await supabase.from("event_sponsors").select("display_order,sponsors(sponsor_name,image_url)").eq("event_id", ev.id).order("display_order");
+      const sr = await supabase.from("event_sponsors").select("sponsor_id,display_order,sponsors(sponsor_name,image_url)").eq("event_id", ev.id).order("display_order");
       if (stop) return;
       setZones(Array.isArray(zr.data) ? (zr.data as Zone[]) : []);
       const sp: Sponsor[] = [];
-      if (Array.isArray(sr.data)) for (const x of sr.data as unknown as { sponsors: { sponsor_name: string; image_url: string | null } | { sponsor_name: string; image_url: string | null }[] | null }[]) {
-        const o = one(x.sponsors); if (o?.image_url) sp.push({ name: o.sponsor_name, image: o.image_url });
+      if (Array.isArray(sr.data)) for (const x of sr.data as unknown as { sponsor_id: string; sponsors: { sponsor_name: string; image_url: string | null } | { sponsor_name: string; image_url: string | null }[] | null }[]) {
+        const o = one(x.sponsors); if (o?.image_url) sp.push({ id: x.sponsor_id, name: o.sponsor_name, image: o.image_url });
       }
       setSponsors(sp);
       setError("");
@@ -257,14 +257,8 @@ export default function Display() {
               const place = { gridColumn: ((z.zone_no - 1) % ZONE_COLS) + 1, gridRow: Math.floor((z.zone_no - 1) / ZONE_COLS) + 1 };
               const cell: CSSProperties = { ...place, position: "relative", overflow: "hidden", minWidth: 0, minHeight: 0 };
               if (z.zone_type === "sponsors") {
-                return (
-                  <div key={z.zone_no} data-testid={`zone-${z.zone_no}`} style={{ ...cell, background: "#fff", border: "1px solid #dbe3ee", borderRadius: 6, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "space-evenly", padding: 8, boxSizing: "border-box" }}>
-                    {sponsors.map((sp, i) => (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img key={i} src={sp.image} alt={sp.name} style={{ maxWidth: "100%", maxHeight: `${Math.floor(100 / Math.max(sponsors.length, 1)) - 2}%`, objectFit: "contain" }} />
-                    ))}
-                  </div>
-                );
+                const chosen = z.class_names?.length ? sponsors.filter((sp) => z.class_names.includes(sp.id)) : sponsors;
+                return <SponsorArea key={z.zone_no} zoneNo={z.zone_no} items={chosen} cellW={zoneView.cellW} cellH={zoneView.cellH} cell={cell} />;
               }
               if (z.zone_type !== "results") return <div key={z.zone_no} style={cell} />;
               const blocks = zoneView.blocksFor(z);
@@ -341,6 +335,28 @@ function buildZoneView(zones: Zone[], panels: Panel[], w: number, h: number) {
   let minScale = ZONE_MAX_SCALE;
   for (const z of zones) if (z.zone_type === "results") minScale = Math.min(minScale, layoutFor(z).scale);
   return { rows, cellW, cellH, scale: minScale, blocksFor, layoutFor };
+}
+
+// Sponsor logos scroll upwards in a continuous loop (static when they all fit in the box).
+function SponsorArea({ zoneNo, items, cellW, cellH, cell }: { zoneNo: number; items: Sponsor[]; cellW: number; cellH: number; cell: CSSProperties }) {
+  const itemH = Math.round(Math.min(cellW * 0.6, cellH / 2));
+  const total = items.length * itemH;
+  const scroll = items.length > 0 && total > cellH;
+  const list = scroll ? [...items, ...items] : items;
+  const secs = Math.max(items.length * 5, 10);
+  return (
+    <div data-testid={`zone-${zoneNo}`} data-scroll={scroll ? "1" : "0"} data-items={items.length} style={{ ...cell, background: "#fff", border: "1px solid #dbe3ee", borderRadius: 6, boxSizing: "border-box" }}>
+      <style>{`@keyframes sponsorScroll{from{transform:translateY(0)}to{transform:translateY(-50%)}}`}</style>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: scroll ? "flex-start" : "space-evenly", height: scroll ? undefined : "100%", animation: scroll ? `sponsorScroll ${secs}s linear infinite` : undefined }}>
+        {list.map((sp, i) => (
+          <div key={i} style={{ height: itemH, width: "100%", padding: 12, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={sp.image} alt={sp.name} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function ClassPanel({ panel, tick }: { panel: Panel; tick: number }) {
