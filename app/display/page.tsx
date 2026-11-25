@@ -18,6 +18,8 @@ type Row = {
   rider_number: number | null;
   rider_name: string | null;
   best_lap: string | null;
+  laps: number | null;
+  total_time: string | null;
   status: string | null;
   provisional: boolean | null;
   races: RaceInfo | RaceInfo[] | null;
@@ -27,7 +29,8 @@ type RaceResults = { race: number; live: boolean; rows: Row[] };
 type Upcoming = { race: number; cls: string; moto: number | null; time: string | null; holeshot: boolean };
 type Zone = { zone_no: number; zone_type: string; class_names: string[] };
 type Sponsor = { name: string; image: string };
-type Panel = { cls: string; order: number; races: RaceResults[]; maxRows: number };
+type Holeshot = { no: number; name: string | null };
+type Panel = { cls: string; order: number; races: RaceResults[]; maxRows: number; holes: Record<number, Holeshot> };
 
 const NAVY = "#003366";
 const ROTATE_MS = 8000;
@@ -44,9 +47,11 @@ function splitRows(rows: Row[]): Row[][] {
 }
 
 // Layout constants in "base" pixels. The whole grid is drawn at this size and then scaled to fit.
-const BASE_W = 340, GAP = 10;
+const BASE_W = 460, GAP = 10;
 const BORDER = 3 /* 2 outer + 1 divider under the race bar */, TITLE_H = 50, SUB_H = 26, THEAD_H = 20, ROW_H = 26, PAD_B = 4;
-const panelHeight = (rows: number) => BORDER + TITLE_H + SUB_H + THEAD_H + rows * ROW_H + PAD_B;
+const HS_H = 26; // holeshot line at the foot of a tile (only for classes that have a holeshot entered)
+const panelHeight = (rows: number, hs = false) => BORDER + TITLE_H + SUB_H + THEAD_H + rows * ROW_H + PAD_B + (hs ? HS_H : 0);
+const panelH = (p: Panel) => panelHeight(p.maxRows, Object.keys(p.holes).length > 0);
 
 const one = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? v[0] ?? null : v);
 
@@ -59,7 +64,7 @@ function shortName(full: string | null): string {
   return `${parts[0].charAt(0).toUpperCase()}. ${parts.slice(1).map(cap).join(" ")}`;
 }
 
-function buildPanels(rows: Row[]): Panel[] {
+function buildPanels(rows: Row[], holes: Map<string, Holeshot>): Panel[] {
   const byClass = new Map<string, { order: number; races: Map<number, RaceResults> }>();
   for (const r of rows) {
     const race = one(r.races);
@@ -77,7 +82,8 @@ function buildPanels(rows: Row[]): Panel[] {
   for (const [cls, c] of byClass) {
     const races = Array.from(c.races.values()).sort((a, b) => a.race - b.race);
     for (const r of races) r.rows.sort((a, b) => (a.position ?? 9999) - (b.position ?? 9999));
-    panels.push({ cls, order: c.order, races, maxRows: Math.max(...races.map((r) => pageSize(r.rows.length))) });
+    panels.push({ cls, order: c.order, races, maxRows: Math.max(...races.map((r) => pageSize(r.rows.length))),
+      holes: Object.fromEntries(races.filter((r) => holes.has(`${cls}|${r.race}`)).map((r) => [r.race, holes.get(`${cls}|${r.race}`)!])) });
   }
   return panels.sort((a, b) => a.order - b.order || a.cls.localeCompare(b.cls));
 }
@@ -90,7 +96,7 @@ function bestLayout(panels: Panel[], w: number, h: number) {
     const width = c * BASE_W + (c - 1) * GAP;
     let height = 0;
     for (let i = 0; i < panels.length; i += c) {
-      height += Math.max(...panels.slice(i, i + c).map((p) => panelHeight(p.maxRows))) + (i ? GAP : 0);
+      height += Math.max(...panels.slice(i, i + c).map((p) => panelH(p))) + (i ? GAP : 0);
     }
     const scale = Math.min(w / width, h / height, 2);
     if (scale > best.scale + 1e-9) best = { cols: c, scale, width, height };
@@ -131,7 +137,7 @@ export default function Display() {
       for (let from = 0; ; from += PAGE) {
         const { data, error: e } = await supabase
           .from("race_results")
-          .select("position,pic,grade,rider_number,rider_name,best_lap,status,provisional,races!inner(race_number,event_id,classes(class_name,display_order))")
+          .select("position,pic,grade,rider_number,rider_name,best_lap,laps,total_time,status,provisional,races!inner(race_number,event_id,classes(class_name,display_order))")
           .eq("races.event_id", ev.id)
           .eq("published", true)
           .order("id", { ascending: true })
@@ -169,7 +175,14 @@ export default function Display() {
       }
       setSponsors(sp);
       setError("");
-      setPanels(buildPanels(all));
+      const hr = await supabase.from("holeshots").select("rider_number,rider_name,races(race_number),classes(class_name)").eq("event_id", ev.id);
+      if (stop) return;
+      const holes = new Map<string, Holeshot>();
+      if (Array.isArray(hr.data)) for (const h of hr.data as unknown as { rider_number: number; rider_name: string | null; races: { race_number: number | null } | { race_number: number | null }[] | null; classes: ClassInfo | ClassInfo[] | null }[]) {
+        const rn = one(h.races)?.race_number, cn = one(h.classes)?.class_name;
+        if (rn != null && cn) holes.set(`${cn}|${rn}`, { no: h.rider_number, name: h.rider_name });
+      }
+      setPanels(buildPanels(all, holes));
       setNotes(((ann.data ?? []) as { message: string }[]).map((a) => a.message));
       setLoaded(true);
     }
@@ -316,11 +329,11 @@ function buildZoneView(zones: Zone[], panels: Panel[], w: number, h: number) {
   const cellW = Math.max(1, Math.floor((w - (ZONE_COLS - 1) * GAP) / ZONE_COLS));
   const cellH = Math.max(1, Math.floor((h - (rows - 1) * GAP) / rows));
   const blocksFor = (z: Zone): Panel[] =>
-    z.class_names.map((n) => byName.get(n) ?? { cls: n, order: 0, races: [], maxRows: 3 });
+    z.class_names.map((n) => byName.get(n) ?? { cls: n, order: 0, races: [], maxRows: 3, holes: {} });
   const layoutFor = (z: Zone) => {
     const b = blocksFor(z);
     if (!b.length) return { scale: 1, innerW: BASE_W };
-    const contentH = b.reduce((t, p) => t + panelHeight(p.maxRows), 0) + (b.length - 1) * GAP;
+    const contentH = b.reduce((t, p) => t + panelH(p), 0) + (b.length - 1) * GAP;
     const scale = Math.min(cellH / contentH, cellW / BASE_W, ZONE_MAX_SCALE);
     return { scale, innerW: cellW / scale };
   };
@@ -358,12 +371,12 @@ function ClassPanel({ panel, tick }: { panel: Panel; tick: number }) {
           </span>
         )}
       </div>
-      <div style={{ height: THEAD_H + panel.maxRows * ROW_H + PAD_B }}>
+      <div style={{ height: THEAD_H + panel.maxRows * ROW_H + PAD_B + (Object.keys(panel.holes).length ? HS_H : 0), position: "relative" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
-          <colgroup><col style={{ width: 62 }} /><col style={{ width: 52 }} /><col /><col style={{ width: 86 }} /></colgroup>
+          <colgroup><col style={{ width: 54 }} /><col style={{ width: 46 }} /><col /><col style={{ width: 40 }} /><col style={{ width: 92 }} /><col style={{ width: 84 }} /></colgroup>
           <thead>
             <tr style={{ height: THEAD_H, color: "#475569", fontSize: 11, textAlign: "left" }}>
-              <th style={cell}>PLACE</th><th style={cell}>NO</th><th style={cell}>RIDER</th><th style={{ ...cell, textAlign: "right" }}>BEST LAP</th>
+              <th style={cell}>PLACE</th><th style={cell}>NO</th><th style={cell}>RIDER</th><th style={{ ...cell, textAlign: "right" }}>LAPS</th><th style={{ ...cell, textAlign: "right" }}>TIME</th><th style={{ ...cell, textAlign: "right" }}>BEST</th>
             </tr>
           </thead>
           <tbody>
@@ -377,12 +390,25 @@ function ClassPanel({ panel, tick }: { panel: Panel; tick: number }) {
                     {shortName(r.rider_name)}
                     {r.grade && <span style={{ color: "#94a3b8", fontSize: 11, marginLeft: 5 }}>{r.grade}</span>}
                   </td>
+                  <td style={{ ...cell, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{r.laps ?? ""}</td>
+                  <td style={{ ...cell, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{r.total_time ?? ""}</td>
                   <td style={{ ...cell, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{r.best_lap}</td>
                 </tr>
               );
             })}
           </tbody>
         </table>
+        {Object.keys(panel.holes).length > 0 && (
+          <div data-testid="holeshot" style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: HS_H, display: "flex", alignItems: "center", gap: 8, padding: "0 12px", borderTop: "1px solid #e5ebf3", fontSize: 13, background: "#fffbea" }}>
+            {panel.holes[current.race] && (
+              <>
+                <span style={{ background: "linear-gradient(135deg, #ffe27a, #e0a800)", color: "#4a3600", fontWeight: 800, borderRadius: 4, padding: "0 6px", fontSize: 11 }}>HOLESHOT</span>
+                <b>{panel.holes[current.race].no}</b>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shortName(panel.holes[current.race].name)}</span>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
