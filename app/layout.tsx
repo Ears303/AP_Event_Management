@@ -39,6 +39,7 @@ export default function RootLayout({
             {[
               ["/manager/event", "Set up event"],
               ["/manager", "Import results"],
+              ["/manager/screen", "Screen layout"],
               ["/display", "Display"],
             ].map(([href, label]) => (
               <a

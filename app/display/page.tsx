@@ -25,6 +25,8 @@ type Row = {
 type EventInfo = { id: string; event_name: string; venue: string | null };
 type RaceResults = { race: number; live: boolean; rows: Row[] };
 type Upcoming = { race: number; cls: string; moto: number | null; time: string | null; holeshot: boolean };
+type Zone = { zone_no: number; zone_type: string; class_names: string[] };
+type Sponsor = { name: string; image: string };
 type Panel = { cls: string; order: number; races: RaceResults[]; maxRows: number };
 
 const NAVY = "#003366";
@@ -34,7 +36,7 @@ const PAGE = 1000; // Supabase returns at most 1000 rows per request
 
 // Layout constants in "base" pixels. The whole grid is drawn at this size and then scaled to fit.
 const BASE_W = 340, GAP = 10;
-const BORDER = 2, TITLE_H = 50, SUB_H = 26, THEAD_H = 20, ROW_H = 26, PAD_B = 4;
+const BORDER = 3 /* 2 outer + 1 divider under the race bar */, TITLE_H = 50, SUB_H = 26, THEAD_H = 20, ROW_H = 26, PAD_B = 4;
 const panelHeight = (rows: number) => BORDER + TITLE_H + SUB_H + THEAD_H + rows * ROW_H + PAD_B;
 
 const one = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? v[0] ?? null : v);
@@ -92,6 +94,8 @@ export default function Display() {
   const [panels, setPanels] = useState<Panel[]>([]);
   const [notes, setNotes] = useState<string[]>([]);
   const [next, setNext] = useState<Upcoming[]>([]);
+  const [zones, setZones] = useState<Zone[]>([]);
+  const [sponsors, setSponsors] = useState<Sponsor[]>([]);
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [tick, setTick] = useState(0);
@@ -145,6 +149,16 @@ export default function Display() {
           time: s.scheduled_time ? new Date(s.scheduled_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : null });
       }
       setNext(upcoming.slice(0, 3));
+      // Screen layout (optional): up to 10 areas, each a stack of classes, the sponsors, or empty.
+      const zr = await supabase.from("display_zones").select("zone_no,zone_type,class_names").eq("event_id", ev.id).order("zone_no");
+      const sr = await supabase.from("event_sponsors").select("display_order,sponsors(sponsor_name,image_url)").eq("event_id", ev.id).order("display_order");
+      if (stop) return;
+      setZones(Array.isArray(zr.data) ? (zr.data as Zone[]) : []);
+      const sp: Sponsor[] = [];
+      if (Array.isArray(sr.data)) for (const x of sr.data as unknown as { sponsors: { sponsor_name: string; image_url: string | null } | { sponsor_name: string; image_url: string | null }[] | null }[]) {
+        const o = one(x.sponsors); if (o?.image_url) sp.push({ name: o.sponsor_name, image: o.image_url });
+      }
+      setSponsors(sp);
       setError("");
       setPanels(buildPanels(all));
       setNotes(((ann.data ?? []) as { message: string }[]).map((a) => a.message));
@@ -178,7 +192,9 @@ export default function Display() {
     return <Frame><Notice>Supabase settings are missing. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel, then redeploy.</Notice></Frame>;
   }
 
-  const layout = bestLayout(panels, size.w - 16, size.h - 8);
+  const layout = bestLayout(zones.length ? [] : panels, size.w - 16, size.h - 8);
+  const zoneMode = zones.length > 0;
+  const zoneView = zoneMode ? buildZoneView(zones, panels, size.w - 16, size.h - 8) : null;
   const left = Math.max(0, (size.w - layout.width * layout.scale) / 2);
   const top = Math.max(0, (size.h - layout.height * layout.scale) / 2);
 
@@ -200,9 +216,45 @@ export default function Display() {
       {!error && loaded && !event && (
         <div style={{ padding: "0 16px" }}><Notice>No live public event found. Set an event&apos;s status to &quot;live&quot; (and make sure the database setup has been run).</Notice></div>
       )}
-      {!error && loaded && event && panels.length === 0 && <div style={{ padding: "0 16px" }}><Notice>No results published yet for this event.</Notice></div>}
+      {!error && loaded && event && panels.length === 0 && !zoneMode && <div style={{ padding: "0 16px" }}><Notice>No results published yet for this event.</Notice></div>}
 
       <div ref={area} style={{ flex: 1, position: "relative", overflow: "hidden", minHeight: 0 }}>
+        {zoneView && (
+          <div
+            data-testid="zones"
+            data-scale={zoneView.scale.toFixed(3)}
+            data-rows={zoneView.rows}
+            style={{
+              position: "absolute", left: 8, top: 4, display: "grid", gap: GAP,
+              gridTemplateColumns: `repeat(${ZONE_COLS}, ${zoneView.cellW}px)`, gridTemplateRows: `repeat(${zoneView.rows}, ${zoneView.cellH}px)`,
+              visibility: size.w ? "visible" : "hidden",
+            }}
+          >
+            {zones.map((z) => {
+              const place = { gridColumn: ((z.zone_no - 1) % ZONE_COLS) + 1, gridRow: Math.floor((z.zone_no - 1) / ZONE_COLS) + 1 };
+              const cell: CSSProperties = { ...place, position: "relative", overflow: "hidden", minWidth: 0, minHeight: 0 };
+              if (z.zone_type === "sponsors") {
+                return (
+                  <div key={z.zone_no} data-testid={`zone-${z.zone_no}`} style={{ ...cell, background: "#fff", border: "1px solid #dbe3ee", borderRadius: 6, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "space-evenly", padding: 8, boxSizing: "border-box" }}>
+                    {sponsors.map((sp, i) => (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img key={i} src={sp.image} alt={sp.name} style={{ maxWidth: "100%", maxHeight: `${Math.floor(100 / Math.max(sponsors.length, 1)) - 2}%`, objectFit: "contain" }} />
+                    ))}
+                  </div>
+                );
+              }
+              if (z.zone_type !== "results") return <div key={z.zone_no} style={cell} />;
+              const blocks = zoneView.blocksFor(z);
+              return (
+                <div key={z.zone_no} data-testid={`zone-${z.zone_no}`} style={cell}>
+                  <div style={{ position: "absolute", left: Math.max(0, (zoneView.cellW - BASE_W * zoneView.scale) / 2), top: 0, width: BASE_W, transform: `scale(${zoneView.scale})`, transformOrigin: "0 0", display: "flex", flexDirection: "column", gap: GAP }}>
+                    {blocks.map((b) => <ClassPanel key={b.cls} panel={b} tick={tick} />)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
         <div
           data-testid="grid"
           data-scale={layout.scale.toFixed(3)}
@@ -212,10 +264,10 @@ export default function Display() {
             position: "absolute", left, top, width: layout.width,
             transform: `scale(${layout.scale})`, transformOrigin: "0 0",
             display: "grid", gridTemplateColumns: `repeat(${layout.cols}, ${BASE_W}px)`, gap: GAP,
-            visibility: size.w ? "visible" : "hidden",
+            visibility: size.w && !zoneMode ? "visible" : "hidden",
           }}
         >
-          {panels.map((p) => <ClassPanel key={p.cls} panel={p} tick={tick} />)}
+          {(zoneMode ? [] : panels).map((p) => <ClassPanel key={p.cls} panel={p} tick={tick} />)}
         </div>
       </div>
 
@@ -243,11 +295,35 @@ export default function Display() {
   );
 }
 
+const ZONE_COLS = 5; // 5 across, 2 down for the full 10 areas
+
+// Works out the size of the zone grid and one common text scale so every area reads the same size.
+function buildZoneView(zones: Zone[], panels: Panel[], w: number, h: number) {
+  const byName = new Map(panels.map((p) => [p.cls, p]));
+  const rows = Math.max(1, Math.ceil(Math.max(...zones.map((z) => z.zone_no)) / ZONE_COLS));
+  const cellW = Math.max(1, Math.floor((w - (ZONE_COLS - 1) * GAP) / ZONE_COLS));
+  const cellH = Math.max(1, Math.floor((h - (rows - 1) * GAP) / rows));
+  const blocksFor = (z: Zone): Panel[] =>
+    z.class_names.map((n) => byName.get(n) ?? { cls: n, order: 0, races: [], maxRows: 3 });
+  let scale = 2;
+  let any = false;
+  for (const z of zones) {
+    if (z.zone_type !== "results") continue;
+    const b = blocksFor(z);
+    if (!b.length) continue;
+    any = true;
+    const contentH = b.reduce((t, p) => t + panelHeight(p.maxRows), 0) + (b.length - 1) * GAP;
+    scale = Math.min(scale, cellW / BASE_W, cellH / contentH);
+  }
+  return { rows, cellW, cellH, scale: any ? scale : 1, blocksFor };
+}
+
 function ClassPanel({ panel, tick }: { panel: Panel; tick: number }) {
   // A live race stays on screen; otherwise rotate through the class's races.
   const liveIdx = panel.races.findIndex((r) => r.live);
-  const idx = liveIdx >= 0 ? liveIdx : tick % panel.races.length;
-  const current = panel.races[idx];
+  const idx = liveIdx >= 0 ? liveIdx : panel.races.length ? tick % panel.races.length : 0;
+  const current = panel.races[idx] ?? { race: 0, live: false, rows: [] as Row[] };
+  const none = panel.races.length === 0;
   return (
     <div style={{ background: "#fff", border: "1px solid #dbe3ee", borderRadius: 6, overflow: "hidden", boxSizing: "border-box" }}>
       <div style={{ background: NAVY, color: "#fff", padding: "0 12px", height: TITLE_H, display: "flex", alignItems: "center", fontSize: 17, lineHeight: "20px", fontWeight: 800, textTransform: "uppercase", overflow: "hidden" }}>
@@ -255,8 +331,8 @@ function ClassPanel({ panel, tick }: { panel: Panel; tick: number }) {
       </div>
       <div style={{ height: SUB_H, padding: "0 12px", display: "flex", justifyContent: "space-between", alignItems: "center", fontWeight: 700, color: NAVY, fontSize: 14, borderBottom: "1px solid #e5ebf3" }}>
         <span>
-          RACE {current.race} •{" "}
-          {current.live ? <span style={{ background: "#16a34a", color: "#fff", padding: "1px 8px", borderRadius: 4 }}>LIVE</span> : "FINAL"}
+          {none ? "NO RESULTS YET" : <>RACE {current.race} •{" "}</>}
+          {none ? null : current.live ? <span style={{ background: "#16a34a", color: "#fff", padding: "1px 8px", borderRadius: 4 }}>LIVE</span> : "FINAL"}
         </span>
         {panel.races.length > 1 && (
           <span aria-label={`Race ${idx + 1} of ${panel.races.length}`} style={{ fontSize: 10, letterSpacing: 2 }}>
