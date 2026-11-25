@@ -33,6 +33,7 @@ type Holeshot = { no: number; name: string | null };
 type Panel = { cls: string; order: number; races: RaceResults[]; maxRows: number; holes: Record<number, Holeshot> };
 
 const NAVY = "#003366";
+const BLUE = "#0b5fff"; // tile header rows and bottom-bar labels
 const ROTATE_MS = 8000;
 const REFRESH_MS = 10000;
 const PAGE = 1000; // Supabase returns at most 1000 rows per request
@@ -310,7 +311,7 @@ export default function Display() {
 
       {notes.length > 0 && (
         <div style={{ display: "flex", margin: "0 16px 12px", background: "#fff", border: "1px solid #dbe3ee", borderRadius: 6, overflow: "hidden", flex: "none" }}>
-          <div style={{ background: NAVY, color: "#fff", padding: "10px 16px", fontWeight: 800 }}>ANNOUNCEMENTS</div>
+          <div style={{ background: BLUE, color: "#fff", padding: "10px 16px", fontWeight: 800 }}>ANNOUNCEMENTS</div>
           <div style={{ padding: "10px 16px", fontSize: 18 }}>{notes[tick % notes.length]}</div>
         </div>
       )}
@@ -356,7 +357,7 @@ function ClassPanel({ panel, tick }: { panel: Panel; tick: number }) {
   const shown = view?.rows ?? [];
   return (
     <div style={{ background: "#fff", border: "1px solid #dbe3ee", borderRadius: 6, overflow: "hidden", boxSizing: "border-box" }}>
-      <div style={{ background: NAVY, color: "#fff", padding: "0 12px", height: TITLE_H, display: "flex", alignItems: "center", fontSize: 17, lineHeight: "20px", fontWeight: 800, textTransform: "uppercase", overflow: "hidden" }}>
+      <div data-testid="tile-title" style={{ background: BLUE, color: "#fff", padding: "0 12px", height: TITLE_H, display: "flex", alignItems: "center", fontSize: 17, lineHeight: "20px", fontWeight: 800, textTransform: "uppercase", overflow: "hidden" }}>
         {panel.cls}
       </div>
       <div style={{ height: SUB_H, padding: "0 12px", display: "flex", justifyContent: "space-between", alignItems: "center", fontWeight: 700, color: NAVY, fontSize: 14, borderBottom: "1px solid #e5ebf3" }}>
@@ -367,7 +368,7 @@ function ClassPanel({ panel, tick }: { panel: Panel; tick: number }) {
         </span>
         {views.length > 1 && (
           <span aria-label={`View ${idx + 1} of ${views.length}`} style={{ fontSize: 10, letterSpacing: 2 }}>
-            {views.map((v, i) => <span key={`${v.race.race}-${v.page}`} style={{ color: i === idx ? "#0b5fff" : "#cbd5e1" }}>●</span>)}
+            {views.map((v, i) => <span key={`${v.race.race}-${v.page}`} style={{ color: i === idx ? BLUE : "#cbd5e1" }}>●</span>)}
           </span>
         )}
       </div>
@@ -429,12 +430,12 @@ function Notice({ children }: { children: React.ReactNode }) {
 
 const bar: CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", flex: "none", gap: 8 };
 const cell: CSSProperties = { padding: "0 6px", whiteSpace: "nowrap", verticalAlign: "middle" };
-const badge: CSSProperties = { display: "inline-block", minWidth: 26, lineHeight: "20px", textAlign: "center", background: "#0b5fff", color: "#fff", borderRadius: 4, fontWeight: 700, padding: "0 6px", fontSize: 14 };
+const badge: CSSProperties = { display: "inline-block", minWidth: 26, lineHeight: "18px", textAlign: "center", boxSizing: "border-box", background: "#fff", color: "#000", border: "1.5px solid #000", borderRadius: 4, fontWeight: 700, padding: "0 6px", fontSize: 14 };
 // 1st, 2nd and 3rd get gold, silver and bronze badges.
 const MEDALS: Record<number, CSSProperties> = {
-  1: { background: "linear-gradient(135deg, #ffe27a, #e0a800)", color: "#4a3600", boxShadow: "0 0 0 1px #b88a00" },
-  2: { background: "linear-gradient(135deg, #f1f4f8, #aab3be)", color: "#2b3440", boxShadow: "0 0 0 1px #8b95a1" },
-  3: { background: "linear-gradient(135deg, #e8a76b, #b8681f)", color: "#2b1500", boxShadow: "0 0 0 1px #8f4e14" },
+  1: { background: "linear-gradient(135deg, #ffe27a, #e0a800)", color: "#4a3600" },
+  2: { background: "linear-gradient(135deg, #f1f4f8, #aab3be)", color: "#2b3440" },
+  3: { background: "linear-gradient(135deg, #e8a76b, #b8681f)", color: "#2b1500" },
 };
 const placeBadge = (pos: number | null): CSSProperties => (pos != null && MEDALS[pos] ? { ...badge, ...MEDALS[pos] } : badge);
-const dnfBadge: CSSProperties = { ...badge, background: "#94a3b8" };
+const dnfBadge: CSSProperties = { ...badge };
