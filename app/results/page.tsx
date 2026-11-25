@@ -16,6 +16,7 @@ type Result = {
 type EventInfo = { id: string; event_name: string; venue: string | null };
 
 const NAVY = "#003366";
+const BLUE = "#0b5fff"; // same scheme as the trailer display
 const one = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? v[0] ?? null : v);
 
 const MEDAL: Record<number, CSSProperties> = {
@@ -24,8 +25,9 @@ const MEDAL: Record<number, CSSProperties> = {
   3: { background: "linear-gradient(135deg, #e8a76b, #b8681f)", color: "#2b1500" },
 };
 const badge = (pos: number | null, dnf: boolean): CSSProperties => ({
-  display: "inline-block", minWidth: 30, textAlign: "center", borderRadius: 6, padding: "3px 6px", fontWeight: 800, fontSize: 15,
-  background: dnf ? "#94a3b8" : "#0b5fff", color: "#fff", ...(!dnf && pos != null && MEDAL[pos] ? MEDAL[pos] : {}),
+  display: "inline-block", minWidth: 32, boxSizing: "border-box", textAlign: "center", borderRadius: 5, padding: "2px 6px",
+  fontWeight: 800, fontSize: 15, background: "#fff", color: "#000", border: "1.5px solid #000",
+  ...(!dnf && pos != null && MEDAL[pos] ? MEDAL[pos] : {}),
 });
 
 export default function Results() {
@@ -100,6 +102,12 @@ export default function Results() {
     try { const u = new URL(window.location.href); u.searchParams.set("race", id); window.history.replaceState(null, "", u.toString()); } catch { /* ignore */ }
   }
 
+  useEffect(() => {
+    const prev = document.body.style.background;
+    document.body.style.background = "#eef2f7";
+    return () => { document.body.style.background = prev; };
+  }, []);
+
   const idx = races.findIndex((r) => r.id === raceId);
   const cur = races[idx];
   const live = rows.some((r) => r.provisional);
@@ -119,26 +127,26 @@ export default function Results() {
       {races.length > 0 && (
         <>
           <div style={{ display: "flex", gap: 8, margin: "14px 0 10px" }}>
-            <button aria-label="Previous race" style={navBtn} disabled={idx <= 0} onClick={() => step(-1)}>&lsaquo;</button>
-            <select aria-label="Choose race" value={raceId} onChange={(e) => choose(e.target.value)} style={{ flex: 1, minWidth: 0, fontSize: 16, padding: "10px 8px", borderRadius: 8, border: "1px solid #b6c2d2", background: "#fff" }}>
+            <button aria-label="Previous race" style={{ ...navBtn, opacity: idx <= 0 ? 0.35 : 1 }} disabled={idx <= 0} onClick={() => step(-1)}>&lsaquo;</button>
+            <select aria-label="Choose race" value={raceId} onChange={(e) => choose(e.target.value)} style={{ flex: 1, minWidth: 0, fontSize: 16, padding: "10px 8px", borderRadius: 8, border: "1px solid #0b5fff", background: "#fff", color: "#003366", fontWeight: 600 }}>
               {races.map((r) => <option key={r.id} value={r.id}>Race {r.race_number} - {r.cls}</option>)}
             </select>
-            <button aria-label="Next race" style={navBtn} disabled={idx >= races.length - 1} onClick={() => step(1)}>&rsaquo;</button>
+            <button aria-label="Next race" style={{ ...navBtn, opacity: idx >= races.length - 1 ? 0.35 : 1 }} disabled={idx >= races.length - 1} onClick={() => step(1)}>&rsaquo;</button>
           </div>
 
-          {cur && (
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "0 2px 8px", fontWeight: 700, color: NAVY }}>
-              <span>{cur.cls}</span>
-              <span style={{ fontSize: 13 }}>
-                {live ? <span style={{ background: "#16a34a", color: "#fff", borderRadius: 4, padding: "1px 8px" }}>LIVE</span> : "FINAL"}
-              </span>
-            </div>
-          )}
-
-          <div data-testid="results-list" style={{ background: "#fff", border: "1px solid #dbe3ee", borderRadius: 10, overflow: "hidden" }}>
+          <div data-testid="results-list" style={{ background: "#fff", border: "1px solid #dbe3ee", borderRadius: 8, overflow: "hidden" }}>
+            {cur && (
+              <>
+                <div data-testid="tile-title" style={{ background: BLUE, color: "#fff", padding: "12px 14px", fontWeight: 800, fontSize: 18, textTransform: "uppercase", overflowWrap: "anywhere" }}>{cur.cls}</div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 14px", fontWeight: 700, color: NAVY, fontSize: 14, borderBottom: "1px solid #e5ebf3" }}>
+                  <span>RACE {cur.race_number}</span>
+                  {live ? <span style={{ background: "#16a34a", color: "#fff", borderRadius: 4, padding: "1px 8px" }}>LIVE</span> : <span>FINAL</span>}
+                </div>
+              </>
+            )}
             {rows.map((r, i) => {
               const dnf = r.status === "dnf";
-              const bits = [r.laps != null ? `${r.laps} laps` : null, r.total_time, r.gap_text ? `+${r.gap_text.replace(/^\+/, "")}` : null].filter(Boolean).join(" • ");
+              const bits = [r.laps != null ? `${r.laps} laps` : null, r.gap_text ? `gap +${r.gap_text.replace(/^\+/, "")}` : null].filter(Boolean).join(" \u2022 ");
               return (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderTop: i ? "1px solid #eef2f7" : undefined, background: r.position === 1 && !dnf ? "#fdf3c8" : undefined }}>
                   <span data-medal={!dnf && r.position != null && r.position <= 3 ? r.position : undefined} style={badge(r.position, dnf)}>{dnf ? "DNF" : r.position}</span>
@@ -177,4 +185,4 @@ function titleCase(n: string | null): string {
 
 const wrap: CSSProperties = { maxWidth: 640, margin: "0 auto", padding: "12px 12px 40px", fontFamily: "system-ui, sans-serif", color: "#0f172a", boxSizing: "border-box" };
 const note: CSSProperties = { background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 8, padding: 12, margin: "14px 0" };
-const navBtn: CSSProperties = { width: 46, fontSize: 24, lineHeight: 1, border: "1px solid #b6c2d2", borderRadius: 8, background: "#fff", color: NAVY, cursor: "pointer" };
+const navBtn: CSSProperties = { width: 46, fontSize: 24, lineHeight: 1, border: 0, borderRadius: 8, background: BLUE, color: "#fff", cursor: "pointer" };
