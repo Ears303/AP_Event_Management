@@ -217,7 +217,8 @@ export default function Display() {
 
   const layout = bestLayout(zones.length ? [] : panels, size.w - 16, size.h - 8);
   const zoneMode = zones.length > 0;
-  const zoneView = zoneMode ? buildZoneView(zones, panels, size.w - 16, size.h - 8) : null;
+  const shownZones = zoneMode ? withExtraClasses(zones, panels) : zones;
+  const zoneView = zoneMode ? buildZoneView(shownZones, panels, size.w - 16, size.h - 8) : null;
   const left = Math.max(0, (size.w - layout.width * layout.scale) / 2);
   const top = Math.max(0, (size.h - layout.height * layout.scale) / 2);
 
@@ -253,7 +254,7 @@ export default function Display() {
               visibility: size.w ? "visible" : "hidden",
             }}
           >
-            {zones.map((z) => {
+            {shownZones.map((z) => {
               const place = { gridColumn: ((z.zone_no - 1) % ZONE_COLS) + 1, gridRow: Math.floor((z.zone_no - 1) / ZONE_COLS) + 1 };
               const cell: CSSProperties = { ...place, position: "relative", overflow: "hidden", minWidth: 0, minHeight: 0 };
               if (z.zone_type === "sponsors") {
@@ -311,6 +312,29 @@ export default function Display() {
       )}
     </Frame>
   );
+}
+
+// Classes that have results but are not in any saved area (e.g. new classes arriving from the live feed) still get a tile:
+// one per free area, and any left over are stacked in the last area used.
+function withExtraClasses(zones: Zone[], panels: Panel[]): Zone[] {
+  const placed = new Set(zones.flatMap((z) => (z.zone_type === "results" ? z.class_names : [])));
+  const extras = panels.filter((p) => !placed.has(p.cls));
+  if (!extras.length) return zones;
+  const used = new Set(zones.map((z) => z.zone_no));
+  const free: number[] = [];
+  for (let n = 1; n <= ZONE_COLS * 2; n++) if (!used.has(n)) free.push(n);
+  const out = zones.map((z) => ({ ...z, class_names: [...z.class_names] }));
+  if (!free.length) {
+    const last = [...out].reverse().find((z) => z.zone_type === "results");
+    if (last) last.class_names.push(...extras.map((p) => p.cls));
+    else out.push({ zone_no: 1, zone_type: "results", class_names: extras.map((p) => p.cls) });
+    return out;
+  }
+  extras.forEach((p, i) => {
+    if (i < free.length) out.push({ zone_no: free[i], zone_type: "results", class_names: [p.cls] });
+    else out[out.length - 1].class_names.push(p.cls);
+  });
+  return out;
 }
 
 const ZONE_COLS = 5; // 5 across, 2 down for the full 10 areas
