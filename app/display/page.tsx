@@ -310,6 +310,12 @@ export default function Display() {
           <div style={{ padding: "10px 16px", fontSize: 18 }}>{notes[tick % notes.length]}</div>
         </div>
       )}
+
+      {panels.some((p) => p.races.some((r) => r.live)) && (
+        <div data-testid="provisional" style={{ margin: "0 16px 12px", background: "#b91c1c", color: "#fff", borderRadius: 6, textAlign: "center", padding: "8px 16px", fontWeight: 800, fontSize: 20, letterSpacing: 2, flex: "none" }}>
+          RESULTS ARE PROVISIONAL
+        </div>
+      )}
     </Frame>
   );
 }

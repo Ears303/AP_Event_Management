@@ -171,6 +171,7 @@ export default function Results() {
               </div>
             )}
           </div>
+          {live && <div data-testid="provisional" style={{ background: "#b91c1c", color: "#fff", borderRadius: 8, textAlign: "center", padding: "10px 12px", marginTop: 10, fontWeight: 800, letterSpacing: 1 }}>RESULTS ARE PROVISIONAL</div>}
           {updated && <div style={{ color: "#94a3b8", fontSize: 12, textAlign: "center", margin: "10px 0" }}>Updated {updated.toLocaleTimeString()} - refreshes automatically</div>}
         </>
       )}
