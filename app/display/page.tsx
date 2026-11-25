@@ -339,9 +339,9 @@ function buildZoneView(zones: Zone[], panels: Panel[], w: number, h: number) {
 
 // Sponsor logos scroll upwards in a continuous loop (static when they all fit in the box).
 function SponsorArea({ zoneNo, items, cellW, cellH, cell }: { zoneNo: number; items: Sponsor[]; cellW: number; cellH: number; cell: CSSProperties }) {
-  const itemH = Math.round(Math.min(cellW * 0.6, cellH / 2));
-  const total = items.length * itemH;
-  const scroll = items.length > 0 && total > cellH;
+  // Fill the box: up to 3 logos share its height; more than 3 scroll, three showing at a time.
+  const itemH = Math.floor((cellH - 2) / Math.max(1, Math.min(items.length, 3)));
+  const scroll = items.length > 3;
   const list = scroll ? [...items, ...items] : items;
   const secs = Math.max(items.length * 5, 10);
   return (
@@ -349,9 +349,9 @@ function SponsorArea({ zoneNo, items, cellW, cellH, cell }: { zoneNo: number; it
       <style>{`@keyframes sponsorScroll{from{transform:translateY(0)}to{transform:translateY(-50%)}}`}</style>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: scroll ? "flex-start" : "space-evenly", height: scroll ? undefined : "100%", animation: scroll ? `sponsorScroll ${secs}s linear infinite` : undefined }}>
         {list.map((sp, i) => (
-          <div key={i} style={{ height: itemH, width: "100%", padding: 12, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
+          <div key={i} style={{ height: itemH, width: "100%", padding: 6, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={sp.image} alt={sp.name} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+            <img src={sp.image} alt={sp.name} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
           </div>
         ))}
       </div>
