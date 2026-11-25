@@ -141,7 +141,8 @@ export default function Display() {
       if (ev) { // Display type is set on the screen layout page (column added by 008; missing = motocross)
         const dm = await supabase.from("events").select("display_mode").eq("id", ev.id).limit(1);
         if (stop) return;
-        setMode(Array.isArray(dm.data) && (dm.data[0] as { display_mode?: string } | undefined)?.display_mode === "enduro" ? "enduro" : "motocross");
+        const forced = new URLSearchParams(window.location.search).get("mode"); // /display?mode=enduro overrides the event setting
+        setMode(forced === "enduro" || forced === "motocross" ? forced : Array.isArray(dm.data) && (dm.data[0] as { display_mode?: string } | undefined)?.display_mode === "enduro" ? "enduro" : "motocross");
       }
       if (!ev) { setPanels([]); setNotes([]); setError(""); setLoaded(true); return; }
 

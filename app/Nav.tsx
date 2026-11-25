@@ -18,12 +18,12 @@ export default function Nav() {
     return () => data.subscription.unsubscribe();
   }, []);
   const links: [string, string][] = [];
-  if (staff) links.push(["/results", "Results"], ["/manager/event", "Set up event"], ["/manager", "Import results"], ["/manager/screen", "Screen layout"], ["/display", "Display"]);
+  if (staff) links.push(["/results", "Results"], ["/manager/event", "Set up event"], ["/manager", "Import results"], ["/manager/screen", "Screen layout"], ["/display", "Display"], ["/display?mode=enduro", "Enduro display"]);
   if (!links.length) return null;
   return (
     <nav style={{ marginLeft: "auto", display: "flex", gap: "10px", flexWrap: "wrap" }}>
       {links.map(([href, label]) => (
-        <a key={href} href={href} style={btn} {...(href === "/display" ? { target: "_blank", rel: "noopener" } : {})}>{label}</a>
+        <a key={href} href={href} style={btn} {...(href.startsWith("/display") ? { target: "_blank", rel: "noopener" } : {})}>{label}</a>
       ))}
     </nav>
   );
