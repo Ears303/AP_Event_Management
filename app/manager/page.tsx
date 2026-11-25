@@ -186,11 +186,6 @@ export default function Manager() {
         </div>
       )}
 
-      <div style={{ ...card, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <a href="/manager/event" style={{ ...button, textDecoration: "none", display: "inline-block" }}>+ Set up an event</a>
-        <span style={{ color: "#64748b", fontSize: 14 }}>Create an event and upload its race schedule.</span>
-      </div>
-
       <div style={card}>
         <h2 style={h2}>1. Choose a MyLaps CSV</h2>
         <input type="file" accept=".csv,text/csv" onChange={(e) => void onFile(e.target.files?.[0])} aria-label="Results file" />
