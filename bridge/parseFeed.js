@@ -50,9 +50,11 @@ function splitClassGrade(cls) {
 class FeedState {
   constructor() { this.reset(); this.buf = ""; }
   reset() {
-    this.blocks = { A: new Map(), C: new Map(), G: [], H: new Map(), SP: new Map() };
-    this.race = null; this.raceName = ""; this.flag = ""; this.raceTime = "";
-    this.lastType = ""; this.dirty = false; this.version = 0;
+    // Every entry is stamped with the "dump" it arrived in, so when a new session ($B id) starts we can drop the old
+    // race's riders without caring whether $B arrives before or after that race's $G/$H blocks.
+    this.G = new Map(); this.H = new Map(); this.SP = new Map(); this.A = new Map(); this.C = new Map();
+    this.race = null; this.raceName = ""; this.session = null; this.flag = ""; this.raceTime = "";
+    this.lastType = ""; this.dump = 0; this.dirty = false; this.version = 0; this.changes = [];
   }
   // Feed raw bytes/text from the socket; complete lines are parsed, partial ones kept for next time.
   push(chunk) {
@@ -63,23 +65,28 @@ class FeedState {
       if (line.trim()) this.line(line);
     }
   }
+  drop(map) { for (const [k, v] of map) if (v.dump < this.dump) map.delete(k); }
   line(line) {
     if (line[0] !== "$") return;
     const f = splitLine(line); const type = f[0].slice(1);
-    if (type === "F") { this.flag = (f[5] || "").trim(); this.raceTime = f[4] || ""; return; } // heartbeat: not a data change
-    const newBlock = type !== this.lastType; this.lastType = type;
-    if (type === "G" && newBlock) this.blocks.G = [];
-    if (type === "H" && newBlock) this.blocks.H = new Map();
-    if (type === "SP" && newBlock) this.blocks.SP = new Map();
-    if (type === "A" && newBlock) this.blocks.A = new Map();
-    if (type === "C" && newBlock) this.blocks.C = new Map();
+    if (type === "F") { this.flag = (f[5] || "").trim(); this.raceTime = f[4] || ""; this.lastType = "F"; return; } // heartbeat
+    if (type === "H" && this.lastType !== "H") this.dump++;   // a new full update starts with the $H block
+    this.lastType = type;
+    const st = (o) => ({ ...o, dump: this.dump });
     switch (type) {
-      case "B": { const m = /(\d+)/.exec(f[2] || ""); this.race = m ? Number(m[1]) : null; this.raceName = f[2] || ""; break; }
-      case "C": this.blocks.C.set(f[1], f[2] || ""); break;
-      case "A": this.blocks.A.set(f[2], { first: f[4] || "", last: f[5] || "", state: f[6] || "", classId: f[7] || "" }); break;
-      case "G": this.blocks.G.push({ no: f[2], laps: f[3] === "" ? 0 : Number(f[3]), time: f[4] || "" }); break;
-      case "H": this.blocks.H.set(f[2], { lapNo: f[3] === "" ? null : Number(f[3]), time: f[4] || "" }); break;
-      case "SP": this.blocks.SP.set(f[2], f[5] === "" ? null : Number(f[5]) / 1000); break;
+      case "B": {
+        const m = /(\d+)/.exec(f[2] || ""); const race = m ? Number(m[1]) : null; const session = f[1];
+        if (session !== this.session || race !== this.race) {
+          if (this.session !== null) { this.changes.push(`session ${this.session}->${session} race ${this.race}->${race}`); this.drop(this.G); this.drop(this.H); this.drop(this.SP); this.drop(this.A); this.drop(this.C); }
+          this.session = session; this.race = race; this.raceName = f[2] || "";
+        }
+        break;
+      }
+      case "C": this.C.set(f[1], st({ name: f[2] || "" })); break;
+      case "A": this.A.set(f[2], st({ first: f[4] || "", last: f[5] || "", state: f[6] || "", classId: f[7] || "" })); break;
+      case "G": this.G.set(f[1], st({ no: f[2], laps: f[3] === "" ? 0 : Number(f[3]), time: f[4] || "" })); break;
+      case "H": this.H.set(f[2], st({ lapNo: f[3] === "" ? null : Number(f[3]), time: f[4] || "" })); break;
+      case "SP": this.SP.set(f[2], st({ v: f[5] === "" ? null : Number(f[5]) / 1000 })); break;
       default: return; // $SR, $COMP, $E ... not needed
     }
     this.dirty = true; this.version++;
@@ -89,26 +96,26 @@ class FeedState {
   snapshot() {
     const warnings = [];
     if (this.race == null) return { race: null, rows: [], warnings: ["no race number yet"] };
-    const riders = this.blocks.G.filter((g) => g.laps > 0 && g.time && timeMs(g.time) !== null);
+    const riders = [...this.G.entries()].sort((x, y) => Number(x[0]) - Number(y[0])).map((e) => e[1]).filter((g) => g.laps > 0 && g.time && timeMs(g.time) !== null);
     const classOf = (no) => {
-      const a = this.blocks.A.get(no); const raw = a ? this.blocks.C.get(a.classId) : undefined;
-      if (raw === undefined) return null; return splitClassGrade(raw);
+      const a = this.A.get(no); const raw = a ? this.C.get(a.classId) : undefined;
+      if (raw === undefined) return null; return splitClassGrade(raw.name);
     };
     const rows = [];
     const byBase = new Map(), byGrade = new Map();
     for (const g of riders) {
-      const a = this.blocks.A.get(g.no); const cg = classOf(g.no);
+      const a = this.A.get(g.no); const cg = classOf(g.no);
       if (!a || !cg) { warnings.push(`rider ${g.no}: no name/class in feed yet`); continue; }
       const bKey = cg.baseClass, gKey = cg.baseClass + "|" + (cg.grade || "");
       const pos = (byBase.get(bKey) || 0) + 1; byBase.set(bKey, pos);
       const pic = (byGrade.get(gKey) || 0) + 1; byGrade.set(gKey, pic);
-      const h = this.blocks.H.get(g.no);
+      const h = this.H.get(g.no);
       rows.push({
         pos, pic, raceNo: g.no, name: `${a.first} ${a.last}`.trim(), baseClass: cg.baseClass, grade: cg.grade,
         laps: g.laps, totalTimeText: cleanTime(g.time), totalTimeMs: timeMs(g.time),
         bestLapText: h && h.time && timeMs(h.time) > 0 ? cleanTime(h.time) : "",
         bestLapMs: h && timeMs(h.time) > 0 ? timeMs(h.time) : null, bestLapOn: h ? h.lapNo : null,
-        bestSpeed: this.blocks.SP.get(g.no) || null, status: "finished", _lapsMs: timeMs(g.time),
+        bestSpeed: (this.SP.get(g.no) || {}).v || null, status: "finished", _lapsMs: timeMs(g.time),
       });
     }
     // diff (to rider ahead) and gap (to leader) within each base class

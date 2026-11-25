@@ -17,3 +17,7 @@ CSV for a race replaces them, and a race that already has final results is never
 
 ## Tests
 `node test-parse.js capture.bin` and `node test-bridge.js capture.bin` replay a capture made with capture-feed.js.
+
+## If live results look wrong
+Add `"saveRaw": true` to config.json and restart. Everything the feed sends is saved to `feed-raw.log` in the bridge folder.
+Send that file (and a screenshot of the window) so the problem can be replayed exactly.

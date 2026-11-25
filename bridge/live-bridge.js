@@ -9,6 +9,7 @@ const { FeedState } = require("./parseFeed");
 function createBridge({ cfg, rpc, log = console.log, connect = (h, p) => net.connect(p, h) }) {
   const state = new FeedState();
   const pushEvery = (cfg.pushEverySeconds ?? 2) * 1000;
+  const rawLog = cfg.saveRaw ? path.join(__dirname, "feed-raw.log") : null;
   let lastPush = 0, lastHash = "", lastRace = null, sock = null, stopped = false, timer = null, reconnect = null, bytes = 0;
 
   async function maybePush(force) {
@@ -36,7 +37,12 @@ function createBridge({ cfg, rpc, log = console.log, connect = (h, p) => net.con
     log(`Connecting to feed ${cfg.feedHost}:${cfg.feedPort} ...`);
     sock = connect(cfg.feedHost, cfg.feedPort);
     sock.on("connect", () => log("Connected to feed."));
-    sock.on("data", (d) => { bytes += d.length; state.push(d); });
+    sock.on("data", (d) => {
+      bytes += d.length;
+      if (rawLog) fs.appendFile(rawLog, d, () => {});
+      state.push(d);
+      while (state.changes.length) log("Feed started a new session: " + state.changes.shift());
+    });
     sock.on("error", (e) => log("Feed error: " + e.message));
     sock.on("close", () => { if (stopped) return; log("Feed closed - reconnecting in 3 s"); reconnect = setTimeout(open, 3000); });
   }
