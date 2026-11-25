@@ -333,7 +333,7 @@ function PointsTable({ result }: { result: ImportResult }) {
 }
 
 type HsRace = { id: string; race_number: number | null; moto: number | null; classes: { class_name: string } | { class_name: string }[] | null };
-type HsRow = { id: string; rider_number: number; rider_name: string; prize_amount: number | null; races: { race_number: number | null } | { race_number: number | null }[] | null; classes: { class_name: string } | { class_name: string }[] | null };
+type HsRow = { id: string; rider_number: number; rider_name: string | null; prize_amount: number | null; races: { race_number: number | null } | { race_number: number | null }[] | null; classes: { class_name: string } | { class_name: string }[] | null };
 const first = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? v[0] ?? null : v);
 
 // Holeshot entry: only races marked "Holeshot" in the schedule are offered. One holeshot per race.
@@ -383,7 +383,7 @@ function HoleshotsCard({ eventId, setMessage }: { eventId: string; setMessage: (
             {races.map((r) => <option key={r.id} value={r.id}>{label(r)}{done.has(r.race_number) ? " - done" : ""}</option>)}
           </select></label>
           <label>Rider no<br /><input style={{ ...input, width: 90 }} inputMode="numeric" value={num} onChange={(e) => setNum(e.target.value.replace(/\D/g, ""))} aria-label="Holeshot rider number" required /></label>
-          <label>Name (if not found)<br /><input style={input} value={rname} onChange={(e) => setRname(e.target.value)} /></label>
+          <label>Name (optional)<br /><input style={input} value={rname} onChange={(e) => setRname(e.target.value)} /></label>
           <label>Prize $ (optional)<br /><input style={{ ...input, width: 100 }} inputMode="decimal" value={prize} onChange={(e) => setPrize(e.target.value.replace(/[^\d.]/g, ""))} /></label>
           <button style={busy || !num ? buttonOff : button} disabled={busy || !num}>{busy ? "Saving..." : "Save holeshot"}</button>
         </form>
@@ -393,7 +393,7 @@ function HoleshotsCard({ eventId, setMessage }: { eventId: string; setMessage: (
           <table style={{ borderCollapse: "collapse", width: "100%" }}>
             <thead><tr>{["Race", "Class", "No", "Rider", "Prize"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
             <tbody>{saved.map((h) => (
-              <tr key={h.id}><td style={td}>{first(h.races)?.race_number}</td><td style={td}>{first(h.classes)?.class_name}</td><td style={td}>{h.rider_number}</td><td style={td}>{h.rider_name}</td><td style={td}>{h.prize_amount != null ? "$" + h.prize_amount : "-"}</td></tr>
+              <tr key={h.id}><td style={td}>{first(h.races)?.race_number}</td><td style={td}>{first(h.classes)?.class_name}</td><td style={td}>{h.rider_number}</td><td style={td}>{h.rider_name ?? <span style={{ color: "#b45309" }}>name fills in when results load</span>}</td><td style={td}>{h.prize_amount != null ? "$" + h.prize_amount : "-"}</td></tr>
             ))}</tbody>
           </table>
         </div>
