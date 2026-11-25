@@ -33,6 +33,7 @@ const badge = (pos: number | null, dnf: boolean): CSSProperties => ({
 export default function Results() {
   const [event, setEvent] = useState<EventInfo | null>(null);
   const [races, setRaces] = useState<RaceOpt[]>([]);
+  const [liveIds, setLiveIds] = useState<Set<string>>(new Set());
   const [raceId, setRaceId] = useState("");
   const [rows, setRows] = useState<Result[]>([]);
   const [holeshot, setHoleshot] = useState<{ no: number; name: string | null } | null>(null);
@@ -59,6 +60,8 @@ export default function Results() {
       if (count > 0 && r.race_number != null) list.push({ id: r.id, race_number: r.race_number, cls: one(r.classes)?.class_name ?? "", count });
     }
     setRaces(list);
+    const lv = await supabase.from("races").select("id").eq("event_id", ev.id).eq("is_live", true); // set by the live feed
+    setLiveIds(new Set(Array.isArray(lv.data) ? (lv.data as { id: string }[]).map((x) => x.id) : []));
     setError("");
     setRaceId((cur) => {
       if (cur && list.some((x) => x.id === cur)) return cur;
@@ -110,7 +113,8 @@ export default function Results() {
 
   const idx = races.findIndex((r) => r.id === raceId);
   const cur = races[idx];
-  const live = rows.some((r) => r.provisional);
+  const prov = rows.some((r) => r.provisional);
+  const live = prov && liveIds.has(raceId);
   const step = (d: number) => { const n = races[idx + d]; if (n) choose(n.id); };
 
   if (!supabaseConfigured) return <div style={wrap}><div style={note}>Supabase settings are missing.</div></div>;
@@ -140,7 +144,7 @@ export default function Results() {
                 <div data-testid="tile-title" style={{ background: BLUE, color: "#fff", padding: "12px 14px", fontWeight: 800, fontSize: 18, textTransform: "uppercase", overflowWrap: "anywhere" }}>{cur.cls}</div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 14px", fontWeight: 700, color: NAVY, fontSize: 14, borderBottom: "1px solid #e5ebf3" }}>
                   <span>RACE {cur.race_number}</span>
-                  {live ? <span style={{ background: "#16a34a", color: "#fff", borderRadius: 4, padding: "1px 8px" }}>LIVE</span> : <span>FINAL</span>}
+                  {live ? <span style={{ background: "#16a34a", color: "#fff", borderRadius: 4, padding: "1px 8px" }}>LIVE</span> : prov ? <span style={{ background: "#b45309", color: "#fff", borderRadius: 4, padding: "1px 8px" }}>PROVISIONAL</span> : <span>FINAL</span>}
                 </div>
               </>
             )}
@@ -171,7 +175,7 @@ export default function Results() {
               </div>
             )}
           </div>
-          {live && <div data-testid="provisional" style={{ background: "#b91c1c", color: "#fff", borderRadius: 8, textAlign: "center", padding: "10px 12px", marginTop: 10, fontWeight: 800, letterSpacing: 1 }}>RESULTS ARE PROVISIONAL</div>}
+          {prov && <div data-testid="provisional" style={{ background: BLUE, color: "#fff", borderRadius: 8, textAlign: "center", padding: "6px 12px", marginTop: 10, fontWeight: 700, fontSize: 13, letterSpacing: 1 }}>RESULTS ARE PROVISIONAL</div>}
           {updated && <div style={{ color: "#94a3b8", fontSize: 12, textAlign: "center", margin: "10px 0" }}>Updated {updated.toLocaleTimeString()} - refreshes automatically</div>}
         </>
       )}

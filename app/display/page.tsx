@@ -25,7 +25,7 @@ type Row = {
   races: RaceInfo | RaceInfo[] | null;
 };
 type EventInfo = { id: string; event_name: string; venue: string | null };
-type RaceResults = { race: number; live: boolean; rows: Row[] };
+type RaceResults = { race: number; live: boolean; prov: boolean; rows: Row[] };
 type Upcoming = { race: number; cls: string; moto: number | null; time: string | null; holeshot: boolean };
 type Zone = { zone_no: number; zone_type: string; class_names: string[] };
 type Sponsor = { id: string; name: string; image: string };
@@ -65,7 +65,7 @@ function shortName(full: string | null): string {
   return `${parts[0].charAt(0).toUpperCase()}. ${parts.slice(1).map(cap).join(" ")}`;
 }
 
-function buildPanels(rows: Row[], holes: Map<string, Holeshot>): Panel[] {
+function buildPanels(rows: Row[], holes: Map<string, Holeshot>, liveRaces: Set<string>): Panel[] {
   const byClass = new Map<string, { order: number; races: Map<number, RaceResults> }>();
   for (const r of rows) {
     const race = one(r.races);
@@ -73,9 +73,9 @@ function buildPanels(rows: Row[], holes: Map<string, Holeshot>): Panel[] {
     if (!race || !cls) continue;
     const c = byClass.get(cls.class_name) ?? { order: cls.display_order ?? 0, races: new Map() };
     const n = race.race_number ?? 0;
-    const rr = c.races.get(n) ?? { race: n, live: false, rows: [] };
+    const rr = c.races.get(n) ?? { race: n, live: false, prov: false, rows: [] };
     rr.rows.push(r);
-    if (r.provisional) rr.live = true;
+    if (r.provisional) { rr.prov = true; if (liveRaces.has(`${n}|${cls.class_name}`)) rr.live = true; } // live = being timed now; provisional = finished, awaiting final results
     c.races.set(n, rr);
     byClass.set(cls.class_name, c);
   }
@@ -111,6 +111,7 @@ export default function Display() {
   const [notes, setNotes] = useState<string[]>([]);
   const [next, setNext] = useState<Upcoming[]>([]);
   const [zones, setZones] = useState<Zone[]>([]);
+  const [liveClasses, setLiveClasses] = useState<string[]>([]);
   const [sponsors, setSponsors] = useState<Sponsor[]>([]);
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
@@ -183,7 +184,13 @@ export default function Display() {
         const rn = one(h.races)?.race_number, cn = one(h.classes)?.class_name;
         if (rn != null && cn) holes.set(`${cn}|${rn}`, { no: h.rider_number, name: h.rider_name });
       }
-      setPanels(buildPanels(all, holes));
+      // Which races are being timed right now (flag set by the live feed; ignored if the column isn't there yet).
+      const lv = await supabase.from("races").select("race_number,classes(class_name)").eq("event_id", ev.id).eq("is_live", true);
+      const liveRaces = new Set<string>();
+      if (Array.isArray(lv.data)) for (const x of lv.data as unknown as { race_number: number | null; classes: ClassInfo | ClassInfo[] | null }[]) { const c = one(x.classes); if (c && x.race_number != null) liveRaces.add(`${x.race_number}|${c.class_name}`); }
+      if (stop) return;
+      setLiveClasses(Array.from(new Set(Array.from(liveRaces).map((k) => k.slice(k.indexOf("|") + 1)))));
+      setPanels(buildPanels(all, holes, liveRaces));
       setNotes(((ann.data ?? []) as { message: string }[]).map((a) => a.message));
       setLoaded(true);
     }
@@ -217,7 +224,7 @@ export default function Display() {
 
   const layout = bestLayout(zones.length ? [] : panels, size.w - 16, size.h - 8);
   const zoneMode = zones.length > 0;
-  const shownZones = zoneMode ? withExtraClasses(zones, panels) : zones;
+  const shownZones = zoneMode ? withLiveArea(withExtraClasses(zones, panels, liveClasses), liveClasses) : zones;
   const zoneView = zoneMode ? buildZoneView(shownZones, panels, size.w - 16, size.h - 8) : null;
   const left = Math.max(0, (size.w - layout.width * layout.scale) / 2);
   const top = Math.max(0, (size.h - layout.height * layout.scale) / 2);
@@ -261,6 +268,14 @@ export default function Display() {
                 const chosen = z.class_names?.length ? sponsors.filter((sp) => z.class_names.includes(sp.id)) : sponsors;
                 return <SponsorArea key={z.zone_no} zoneNo={z.zone_no} items={chosen} cellW={zoneView.cellW} cellH={zoneView.cellH} cell={cell} />;
               }
+              if (z.zone_type === "waiting") return (
+                <div key={z.zone_no} data-testid={`zone-${z.zone_no}`} data-waiting="1" style={{ ...cell, background: "#fff", border: "1px solid #dbe3ee", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", color: "#64748b", fontWeight: 800, fontSize: 22, letterSpacing: 1, padding: 12, boxSizing: "border-box" }}>
+                  <div>
+                    AWAITING RESULTS
+                    {next[0] && <div style={{ marginTop: 12, fontSize: 15, fontWeight: 600, letterSpacing: 0, color: NAVY }}>NEXT: Race {next[0].race} &bull; {next[0].cls}{next[0].moto ? ` \u2022 Moto ${next[0].moto}` : ""}{next[0].time ? ` \u2022 ${next[0].time}` : ""}</div>}
+                  </div>
+                </div>
+              );
               if (z.zone_type !== "results") return <div key={z.zone_no} style={cell} />;
               const blocks = zoneView.blocksFor(z);
               const lay = zoneView.layoutFor(z);
@@ -311,8 +326,8 @@ export default function Display() {
         </div>
       )}
 
-      {panels.some((p) => p.races.some((r) => r.live)) && (
-        <div data-testid="provisional" style={{ margin: "0 16px 12px", background: "#b91c1c", color: "#fff", borderRadius: 6, textAlign: "center", padding: "8px 16px", fontWeight: 800, fontSize: 20, letterSpacing: 2, flex: "none" }}>
+      {panels.some((p) => p.races.some((r) => r.prov)) && (
+        <div data-testid="provisional" style={{ margin: "0 16px 10px", background: BLUE, color: "#fff", borderRadius: 6, textAlign: "center", padding: "4px 16px", fontWeight: 700, fontSize: 14, letterSpacing: 2, flex: "none" }}>
           RESULTS ARE PROVISIONAL
         </div>
       )}
@@ -322,13 +337,14 @@ export default function Display() {
 
 // Classes that have results but are not in any saved area (e.g. new classes arriving from the live feed) still get a tile:
 // one per free area, and any left over are stacked in the last area used.
-function withExtraClasses(zones: Zone[], panels: Panel[]): Zone[] {
-  const placed = new Set(zones.flatMap((z) => (z.zone_type === "results" ? z.class_names : [])));
+function withExtraClasses(zones: Zone[], panels: Panel[], liveClasses: string[]): Zone[] {
+  zones = zones.filter((z) => z.zone_no !== LIVE_AREA); // area 10 is reserved for the live race
+  const placed = new Set([...zones.flatMap((z) => (z.zone_type === "results" ? z.class_names : [])), ...liveClasses]);
   const extras = panels.filter((p) => !placed.has(p.cls));
   if (!extras.length) return zones;
   const used = new Set(zones.map((z) => z.zone_no));
   const free: number[] = [];
-  for (let n = 1; n <= ZONE_COLS * 2; n++) if (!used.has(n)) free.push(n);
+  for (let n = 1; n <= ZONE_COLS * 2; n++) if (!used.has(n) && n !== LIVE_AREA) free.push(n);
   const out = zones.map((z) => ({ ...z, class_names: [...z.class_names] }));
   if (!free.length) {
     const last = [...out].reverse().find((z) => z.zone_type === "results");
@@ -343,6 +359,13 @@ function withExtraClasses(zones: Zone[], panels: Panel[]): Zone[] {
   return out;
 }
 
+const LIVE_AREA = 10; // area 10 always shows the race being timed right now
+
+// Area 10 = the live race (every class in it, stacked). Nothing live -> a waiting message.
+function withLiveArea(zones: Zone[], liveClasses: string[]): Zone[] {
+  return [...zones.filter((z) => z.zone_no !== LIVE_AREA), { zone_no: LIVE_AREA, zone_type: liveClasses.length ? "results" : "waiting", class_names: liveClasses }];
+}
+
 const ZONE_COLS = 5; // 5 across, 2 down for the full 10 areas
 const ZONE_MAX_SCALE = 2.5;
 
@@ -355,15 +378,16 @@ function buildZoneView(zones: Zone[], panels: Panel[], w: number, h: number) {
   const cellH = Math.max(1, Math.floor((h - (rows - 1) * GAP) / rows));
   const blocksFor = (z: Zone): Panel[] =>
     z.class_names.map((n) => byName.get(n) ?? { cls: n, order: 0, races: [], maxRows: 3, holes: {} });
-  const layoutFor = (z: Zone) => {
+  // One scale for every results area so the text is the same size on all tiles (set by the tallest area).
+  const fitScale = (z: Zone) => {
     const b = blocksFor(z);
-    if (!b.length) return { scale: 1, innerW: BASE_W };
+    if (!b.length) return ZONE_MAX_SCALE;
     const contentH = b.reduce((t, p) => t + panelH(p), 0) + (b.length - 1) * GAP;
-    const scale = Math.min(cellH / contentH, cellW / BASE_W, ZONE_MAX_SCALE);
-    return { scale, innerW: cellW / scale };
+    return Math.min(cellH / contentH, cellW / BASE_W, ZONE_MAX_SCALE);
   };
   let minScale = ZONE_MAX_SCALE;
-  for (const z of zones) if (z.zone_type === "results") minScale = Math.min(minScale, layoutFor(z).scale);
+  for (const z of zones) if (z.zone_type === "results") minScale = Math.min(minScale, fitScale(z));
+  const layoutFor = (_z: Zone) => ({ scale: minScale, innerW: cellW / minScale });
   return { rows, cellW, cellH, scale: minScale, blocksFor, layoutFor };
 }
 
@@ -399,7 +423,7 @@ function ClassPanel({ panel, tick }: { panel: Panel; tick: number }) {
     .flatMap((r) => splitRows(r.rows).map((rows, i, all) => ({ race: r, rows, page: i + 1, pages: all.length })));
   const idx = views.length ? tick % views.length : 0;
   const view = views[idx];
-  const current = view?.race ?? { race: 0, live: false, rows: [] as Row[] };
+  const current = view?.race ?? { race: 0, live: false, prov: false, rows: [] as Row[] };
   const shown = view?.rows ?? [];
   return (
     <div style={{ background: "#fff", border: "1px solid #dbe3ee", borderRadius: 6, overflow: "hidden", boxSizing: "border-box" }}>
@@ -409,7 +433,7 @@ function ClassPanel({ panel, tick }: { panel: Panel; tick: number }) {
       <div style={{ height: SUB_H, padding: "0 12px", display: "flex", justifyContent: "space-between", alignItems: "center", fontWeight: 700, color: NAVY, fontSize: 14, borderBottom: "1px solid #e5ebf3" }}>
         <span>
           {none ? "NO RESULTS YET" : <>RACE {current.race} •{" "}</>}
-          {none ? null : current.live ? <span style={{ background: "#16a34a", color: "#fff", padding: "1px 8px", borderRadius: 4 }}>LIVE</span> : "FINAL"}
+          {none ? null : current.live ? <span style={{ background: "#16a34a", color: "#fff", padding: "1px 8px", borderRadius: 4 }}>LIVE</span> : current.prov ? <span style={{ background: "#b45309", color: "#fff", padding: "1px 8px", borderRadius: 4 }}>PROVISIONAL</span> : "FINAL"}
           {view && view.pages > 1 && <span data-testid="page-label" style={{ marginLeft: 6 }}>• {view.page}/{view.pages}</span>}
         </span>
         {views.length > 1 && (

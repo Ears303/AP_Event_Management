@@ -4,6 +4,9 @@
 -- A final MyLaps CSV import for the same race replaces them (publish_import already deletes provisional rows),
 -- and live updates never overwrite a race that already has final results.
 
+-- A race is 'live' while the feed is timing it; once the feed moves on it stays provisional until the final CSV is imported.
+alter table aptiming.races add column if not exists is_live boolean not null default false;
+
 create or replace function aptiming.live_update_race(p_event uuid, p_race_number int, p_rows jsonb)
 returns int language plpgsql security definer set search_path = aptiming, public as $$
 declare
@@ -13,6 +16,9 @@ begin
     raise exception 'not allowed for this event' using errcode = '42501';
   end if;
   if jsonb_typeof(p_rows) <> 'array' then raise exception 'rows must be a list'; end if;
+
+  -- the feed has moved on to this race: earlier races are no longer live (their results stay provisional)
+  update aptiming.races set is_live = false where event_id = p_event and is_live and race_number is distinct from p_race_number;
 
   for v_base in select distinct r->>'baseClass' from jsonb_array_elements(p_rows) r loop
     select id into v_class from aptiming.classes where class_name = v_base limit 1;
@@ -27,6 +33,7 @@ begin
     -- final (imported) results win: leave them alone
     if exists (select 1 from aptiming.race_results where race_id = v_race and not provisional) then continue; end if;
 
+    update aptiming.races set is_live = true where id = v_race;
     delete from aptiming.race_results where race_id = v_race and provisional;
     insert into aptiming.race_results(
       race_id, rider_id, position, pic, rider_number, rider_name, grade, status, laps,

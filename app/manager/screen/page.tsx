@@ -171,13 +171,15 @@ function Editor() {
           <div key={i} data-testid={`area-${i + 1}`} style={{ background: "#fff", border: "1px solid #dbe3ee", borderRadius: 8, padding: 10 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
               <strong style={{ color: NAVY }}>Area {i + 1}</strong>
+              {i === AREAS - 1 ? <span style={{ fontSize: 14, color: "#16a34a", fontWeight: 700 }}>Live race (automatic)</span> :
               <select style={{ ...input, padding: "4px 6px", fontSize: 14 }} value={a.type} onChange={(e) => setType(i, e.target.value as Area["type"])} aria-label={`Area ${i + 1} type`}>
                 <option value="empty">Empty</option>
                 <option value="results">Results</option>
                 <option value="sponsors">Sponsors</option>
-              </select>
+              </select>}
             </div>
-            {a.type === "results" && (
+            {i === AREAS - 1 && <div style={{ color: "#64748b", fontSize: 14 }}>Always shows the race being timed right now (automatic).</div>}
+            {i !== AREAS - 1 && a.type === "results" && (
               <div style={{ maxHeight: 190, overflowY: "auto", fontSize: 14 }}>
                 {classes.length === 0 && <div style={{ color: "#64748b" }}>No classes yet - upload the schedule first.</div>}
                 {classes.map((c) => {
@@ -191,7 +193,7 @@ function Editor() {
                 })}
               </div>
             )}
-            {a.type === "sponsors" && (
+            {i !== AREAS - 1 && a.type === "sponsors" && (
               <div style={{ maxHeight: 190, overflowY: "auto", fontSize: 14 }}>
                 <div style={{ color: "#64748b", marginBottom: 4 }}>Logos scroll through this area. Tick the sponsors to show here - none ticked shows all.</div>
                 {sponsors.length === 0 && <div style={{ color: "#64748b" }}>No sponsors yet - add logos below.</div>}
