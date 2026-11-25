@@ -33,6 +33,15 @@ const NAVY = "#003366";
 const ROTATE_MS = 8000;
 const REFRESH_MS = 10000;
 const PAGE = 1000; // Supabase returns at most 1000 rows per request
+const PAGE_ROWS = 20; // most riders shown at once in a tile; longer races roll through in equal pages
+
+// Split a race into equal pages of at most PAGE_ROWS riders (40 -> 20 + 20, 25 -> 13 + 12).
+const pagesNeeded = (n: number) => Math.max(1, Math.ceil(n / PAGE_ROWS));
+const pageSize = (n: number) => Math.ceil(n / pagesNeeded(n));
+function splitRows(rows: Row[]): Row[][] {
+  const pages = pagesNeeded(rows.length), size = pageSize(rows.length);
+  return Array.from({ length: pages }, (_, i) => rows.slice(i * size, (i + 1) * size));
+}
 
 // Layout constants in "base" pixels. The whole grid is drawn at this size and then scaled to fit.
 const BASE_W = 340, GAP = 10;
@@ -68,7 +77,7 @@ function buildPanels(rows: Row[]): Panel[] {
   for (const [cls, c] of byClass) {
     const races = Array.from(c.races.values()).sort((a, b) => a.race - b.race);
     for (const r of races) r.rows.sort((a, b) => (a.position ?? 9999) - (b.position ?? 9999));
-    panels.push({ cls, order: c.order, races, maxRows: Math.max(...races.map((r) => r.rows.length)) });
+    panels.push({ cls, order: c.order, races, maxRows: Math.max(...races.map((r) => pageSize(r.rows.length))) });
   }
   return panels.sort((a, b) => a.order - b.order || a.cls.localeCompare(b.cls));
 }
@@ -321,11 +330,17 @@ function buildZoneView(zones: Zone[], panels: Panel[], w: number, h: number) {
 }
 
 function ClassPanel({ panel, tick }: { panel: Panel; tick: number }) {
-  // A live race stays on screen; otherwise rotate through the class's races.
-  const liveIdx = panel.races.findIndex((r) => r.live);
-  const idx = liveIdx >= 0 ? liveIdx : panel.races.length ? tick % panel.races.length : 0;
-  const current = panel.races[idx] ?? { race: 0, live: false, rows: [] as Row[] };
+  // Views = every (race, page) pair. A live race stays on screen (paging through its own pages);
+  // otherwise the tile rolls through all races and pages.
   const none = panel.races.length === 0;
+  const liveOnly = panel.races.some((r) => r.live);
+  const views = panel.races
+    .filter((r) => !liveOnly || r.live)
+    .flatMap((r) => splitRows(r.rows).map((rows, i, all) => ({ race: r, rows, page: i + 1, pages: all.length })));
+  const idx = views.length ? tick % views.length : 0;
+  const view = views[idx];
+  const current = view?.race ?? { race: 0, live: false, rows: [] as Row[] };
+  const shown = view?.rows ?? [];
   return (
     <div style={{ background: "#fff", border: "1px solid #dbe3ee", borderRadius: 6, overflow: "hidden", boxSizing: "border-box" }}>
       <div style={{ background: NAVY, color: "#fff", padding: "0 12px", height: TITLE_H, display: "flex", alignItems: "center", fontSize: 17, lineHeight: "20px", fontWeight: 800, textTransform: "uppercase", overflow: "hidden" }}>
@@ -335,10 +350,11 @@ function ClassPanel({ panel, tick }: { panel: Panel; tick: number }) {
         <span>
           {none ? "NO RESULTS YET" : <>RACE {current.race} •{" "}</>}
           {none ? null : current.live ? <span style={{ background: "#16a34a", color: "#fff", padding: "1px 8px", borderRadius: 4 }}>LIVE</span> : "FINAL"}
+          {view && view.pages > 1 && <span data-testid="page-label" style={{ marginLeft: 6 }}>• {view.page}/{view.pages}</span>}
         </span>
-        {panel.races.length > 1 && (
-          <span aria-label={`Race ${idx + 1} of ${panel.races.length}`} style={{ fontSize: 10, letterSpacing: 2 }}>
-            {panel.races.map((r, i) => <span key={r.race} style={{ color: i === idx ? "#0b5fff" : "#cbd5e1" }}>●</span>)}
+        {views.length > 1 && (
+          <span aria-label={`View ${idx + 1} of ${views.length}`} style={{ fontSize: 10, letterSpacing: 2 }}>
+            {views.map((v, i) => <span key={`${v.race.race}-${v.page}`} style={{ color: i === idx ? "#0b5fff" : "#cbd5e1" }}>●</span>)}
           </span>
         )}
       </div>
@@ -351,10 +367,10 @@ function ClassPanel({ panel, tick }: { panel: Panel; tick: number }) {
             </tr>
           </thead>
           <tbody>
-            {current.rows.map((r, i) => {
+            {shown.map((r, i) => {
               const dnf = r.status === "dnf";
               return (
-                <tr key={i} style={{ height: ROW_H, background: i === 0 && !dnf ? "#fdf3c8" : undefined, fontSize: 15 }}>
+                <tr key={i} style={{ height: ROW_H, background: r.position === 1 && !dnf ? "#fdf3c8" : undefined, fontSize: 15 }}>
                   <td style={cell}><span data-medal={!dnf && r.position != null && r.position <= 3 ? r.position : undefined} style={dnf ? dnfBadge : placeBadge(r.position)}>{dnf ? "DNF" : r.position}</span></td>
                   <td style={{ ...cell, fontWeight: 700 }}>{r.rider_number}</td>
                   <td style={{ ...cell, overflow: "hidden", textOverflow: "ellipsis" }}>
