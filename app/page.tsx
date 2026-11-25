@@ -1,1 +1,6 @@
-export default function Page(){return <div style={{padding:40}}><h1>AP Timing Live</h1><p>Use /manager or /display</p></div>}
+import { redirect } from "next/navigation";
+
+// The public landing page is the results page.
+export default function Page() {
+  redirect("/results");
+}

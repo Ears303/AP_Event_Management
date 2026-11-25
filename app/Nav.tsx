@@ -8,7 +8,7 @@ const btn = {
   fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap",
 } as const;
 
-// Public visitors only see Results; timing-team buttons appear once signed in.
+// Timing-team buttons only; the public never sees them (and the header hides them on public pages).
 export default function Nav() {
   const [staff, setStaff] = useState(false);
   useEffect(() => {
@@ -17,8 +17,9 @@ export default function Nav() {
     const { data } = supabase.auth.onAuthStateChange((_e, s) => setStaff(Boolean(s)));
     return () => data.subscription.unsubscribe();
   }, []);
-  const links: [string, string][] = [["/results", "Results"]];
-  if (staff) links.push(["/manager/event", "Set up event"], ["/manager", "Import results"], ["/manager/screen", "Screen layout"], ["/display", "Display"]);
+  const links: [string, string][] = [];
+  if (staff) links.push(["/results", "Results"], ["/manager/event", "Set up event"], ["/manager", "Import results"], ["/manager/screen", "Screen layout"], ["/display", "Display"]);
+  if (!links.length) return null;
   return (
     <nav style={{ marginLeft: "auto", display: "flex", gap: "10px", flexWrap: "wrap" }}>
       {links.map(([href, label]) => (
