@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../../../lib/supabase";
 import StaffGate from "../StaffGate";
+import { logoBlobFromFile, logoKind } from "../../../lib/image/logoFile";
 import { page, card, h2, input, button, buttonOff, NAVY } from "../ui";
 import type { EventRow, Message } from "../ui";
 
@@ -25,7 +26,8 @@ function Editor() {
   const [classes, setClasses] = useState<string[]>([]);
   const [sponsors, setSponsors] = useState<SponsorRow[]>([]);
   const [sName, setSName] = useState("");
-  const [sUrl, setSUrl] = useState("");
+  const [sFile, setSFile] = useState<File | null>(null);
+  const [sBusy, setSBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<Message | null>(null);
 
@@ -98,16 +100,43 @@ function Editor() {
     setMessage(error ? { type: "error", text: "Could not save layout: " + error.message } : { type: "ok", text: zones.length ? `Layout saved (${zones.length} areas).` : "Layout cleared - the display will arrange classes automatically." });
   }
 
+  const BUCKET = "sponsor-logos";
+
+  function pickLogo(f: File | null) {
+    setSFile(f);
+    if (f && !sName.trim()) setSName(f.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim());
+  }
+
+  // JPEG / PNG / PDF -> web-sized image -> Supabase Storage -> sponsor row.
   async function addSponsor(e: React.FormEvent) {
     e.preventDefault();
-    const { error } = await supabase.rpc("add_event_sponsor", { p_event: eventId, p_name: sName, p_image_url: sUrl });
-    if (error) { setMessage({ type: "error", text: "Could not add sponsor: " + error.message }); return; }
-    setSName(""); setSUrl("");
-    await load();
+    if (!sFile) return;
+    setSBusy(true);
+    try {
+      if (!logoKind(sFile)) throw new Error("Please choose a JPEG, PNG or PDF file.");
+      const logo = await logoBlobFromFile(sFile);
+      const slug = sName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "logo";
+      const path = `${eventId}/${Date.now()}-${slug}.${logo.ext}`;
+      const up = await supabase.storage.from(BUCKET).upload(path, logo.blob, { contentType: logo.contentType, upsert: false });
+      if (up.error) throw new Error("Upload failed: " + up.error.message + " (has 006_sponsor_storage.sql been run?)");
+      const url = supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+      const { error } = await supabase.rpc("add_event_sponsor", { p_event: eventId, p_name: sName, p_image_url: url });
+      if (error) { await supabase.storage.from(BUCKET).remove([path]); throw new Error(error.message); }
+      setSName(""); setSFile(null);
+      setMessage({ type: "ok", text: `Sponsor "${sName}" added.` });
+      await load();
+    } catch (err) {
+      setMessage({ type: "error", text: "Could not add sponsor: " + (err instanceof Error ? err.message : String(err)) });
+    } finally {
+      setSBusy(false);
+    }
   }
   async function removeSponsor(id: string) {
+    const image = sponsors.find((x) => x.id === id)?.image ?? "";
     const { error } = await supabase.rpc("remove_event_sponsor", { p_event: eventId, p_sponsor: id });
     if (error) { setMessage({ type: "error", text: "Could not remove sponsor: " + error.message }); return; }
+    const m = image.match(/\/sponsor-logos\/(.+)$/); // also tidy the stored file (best effort)
+    if (m) await supabase.storage.from(BUCKET).remove([decodeURIComponent(m[1])]);
     await load();
   }
 
@@ -171,10 +200,12 @@ function Editor() {
       <div style={card}>
         <h2 style={h2}>Sponsor logos</h2>
         <form onSubmit={(e) => void addSponsor(e)} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
+          <label>Logo file (JPEG, PNG or PDF)<br /><input type="file" accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf" aria-label="Logo file" onChange={(e) => { pickLogo(e.target.files?.[0] ?? null); e.target.value = ""; }} /></label>
           <label>Sponsor name<br /><input style={input} value={sName} onChange={(e) => setSName(e.target.value)} required aria-label="Sponsor name" /></label>
-          <label>Link to logo image (https://...)<br /><input style={{ ...input, width: 320 }} value={sUrl} onChange={(e) => setSUrl(e.target.value)} required aria-label="Logo link" /></label>
-          <button style={eventId ? button : buttonOff} disabled={!eventId}>Add sponsor</button>
+          <button style={!eventId || !sFile || sBusy ? buttonOff : button} disabled={!eventId || !sFile || sBusy}>{sBusy ? "Uploading..." : "Add sponsor"}</button>
+          {sFile && <span style={{ color: "#64748b", fontSize: 13 }}>Selected: {sFile.name}</span>}
         </form>
+        <div style={{ color: "#64748b", fontSize: 13, marginTop: 6 }}>A PDF uses its first page. Logos are resized for the screen automatically.</div>
         {sponsors.length > 0 && (
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 12 }}>
             {sponsors.map((s) => (
