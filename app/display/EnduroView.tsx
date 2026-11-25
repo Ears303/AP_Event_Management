@@ -98,12 +98,14 @@ export default function EnduroView({ event }: { event: Ev }) {
   live.sort((a, b) => (b.laps ?? 0) - (a.laps ?? 0) || (a.total_time_ms ?? 1e12) - (b.total_time_ms ?? 1e12) || (a.position ?? 999) - (b.position ?? 999));
 
   const headH = 46;
-  const rowH = size.h ? Math.max(34, Math.min(64, Math.floor((size.h - headH) / 14))) : 48;
+  const portrait = size.w > 0 && size.w < size.h; // e.g. a 22" monitor stood upright: narrower columns, more rows per page
+  const rowH = size.h ? Math.max(34, Math.min(portrait ? 72 : 64, Math.floor((size.h - headH) / (portrait ? 20 : 14)))) : 48;
   const perPage = Math.max(1, size.h ? Math.floor((size.h - headH) / rowH) : 14);
   const pages = Math.max(1, Math.ceil(live.length / perPage));
   const page = tick % pages;
   const shown = live.slice(page * perPage, (page + 1) * perPage);
-  const font = Math.round(rowH * 0.5);
+  const font = Math.round(Math.min(rowH * 0.5, size.w ? (portrait ? size.w / 40 : size.w / 36) : 28)); // never wider than the columns can hold
+  const cols = portrait ? [9, 25, 18, 21, 8, 19] : [7, 27, 25, 15, 10, 16];
 
   // Race clock: counts down (time to go) or up (race time), ticking locally between updates while the flag is green.
   const running = /green/i.test(status?.flag ?? "");
@@ -136,7 +138,7 @@ export default function EnduroView({ event }: { event: Ev }) {
         )}
         {live.length > 0 && (
           <table data-testid="enduro-table" style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
-            <colgroup><col style={{ width: "7%" }} /><col style={{ width: "27%" }} /><col style={{ width: "25%" }} /><col style={{ width: "15%" }} /><col style={{ width: "10%" }} /><col style={{ width: "16%" }} /></colgroup>
+            <colgroup>{cols.map((c, i) => <col key={i} style={{ width: `${c}%` }} />)}</colgroup>
             <thead>
               <tr style={{ background: BLUE, height: headH }}>
                 <th style={th}>POS</th><th style={th}>RIDER</th><th style={th}>CLASS</th><th style={th}>TOTAL TIME</th><th style={th}>LAPS</th><th style={th}>BEST TIME</th>
@@ -152,7 +154,7 @@ export default function EnduroView({ event }: { event: Ev }) {
                       <span data-medal={medal ? pos : undefined} style={{ display: "inline-block", minWidth: font * 1.5, textAlign: "center", border: "2px solid #000", borderRadius: 6, fontWeight: 800, padding: "0 6px", ...(medal ?? { background: "#fff", color: "#000" }) }}>{pos}</span>
                     </td>
                     <td style={{ ...td, fontWeight: 700 }}><span style={{ color: "#475569", marginRight: 12 }}>{r.rider_number}</span>{shortName(r.rider_name)}</td>
-                    <td style={td}>{one(one(r.races)?.classes)?.class_name ?? ""}</td>
+                    <td style={portrait ? { ...td, whiteSpace: "normal", fontSize: Math.round(font * 0.75), lineHeight: 1.1, overflow: "hidden" } : td}>{one(one(r.races)?.classes)?.class_name ?? ""}</td>
                     <td style={td}>{r.total_time ?? ""}</td>
                     <td style={td}>{r.laps ?? ""}</td>
                     <td style={td}>{r.best_lap ?? ""}</td>
@@ -172,7 +174,7 @@ export default function EnduroView({ event }: { event: Ev }) {
         </div>
       )}
 
-      <div data-testid="clock" style={{ margin: "0 16px 8px", background: NAVY, color: "#fff", borderRadius: 6, padding: "10px 24px", flex: "none", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+      <div data-testid="clock" style={{ margin: "0 16px 8px", background: NAVY, color: "#fff", borderRadius: 6, padding: "10px 24px", flex: "none", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <span style={{ fontSize: 22, fontWeight: 700, letterSpacing: 2 }}>{clock.label}</span>
         <span data-testid="clock-value" style={{ fontSize: 56, fontWeight: 800, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{clock.value}</span>
         <span style={{ fontSize: 22, fontWeight: 800, color: "#fff", background: flagColor, borderRadius: 6, padding: "4px 14px", minWidth: 110, textAlign: "center", visibility: flag ? "visible" : "hidden" }}>{flag.toUpperCase() || "-"}</span>
