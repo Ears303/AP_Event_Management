@@ -245,9 +245,10 @@ export default function Display() {
               }
               if (z.zone_type !== "results") return <div key={z.zone_no} style={cell} />;
               const blocks = zoneView.blocksFor(z);
+              const lay = zoneView.layoutFor(z);
               return (
-                <div key={z.zone_no} data-testid={`zone-${z.zone_no}`} style={cell}>
-                  <div style={{ position: "absolute", left: Math.max(0, (zoneView.cellW - BASE_W * zoneView.scale) / 2), top: 0, width: BASE_W, transform: `scale(${zoneView.scale})`, transformOrigin: "0 0", display: "flex", flexDirection: "column", gap: GAP }}>
+                <div key={z.zone_no} data-testid={`zone-${z.zone_no}`} data-scale={lay.scale.toFixed(3)} style={cell}>
+                  <div style={{ position: "absolute", left: 0, top: 0, width: lay.innerW, transform: `scale(${lay.scale})`, transformOrigin: "0 0", display: "flex", flexDirection: "column", gap: GAP }}>
                     {blocks.map((b) => <ClassPanel key={b.cls} panel={b} tick={tick} />)}
                   </div>
                 </div>
@@ -296,8 +297,10 @@ export default function Display() {
 }
 
 const ZONE_COLS = 5; // 5 across, 2 down for the full 10 areas
+const ZONE_MAX_SCALE = 2.5;
 
-// Works out the size of the zone grid and one common text scale so every area reads the same size.
+// Works out the size of the zone grid. Each area is scaled on its own to be as large as fits its box, and the
+// tiles are widened to fill the box so no space is wasted beside them.
 function buildZoneView(zones: Zone[], panels: Panel[], w: number, h: number) {
   const byName = new Map(panels.map((p) => [p.cls, p]));
   const rows = Math.max(1, Math.ceil(Math.max(...zones.map((z) => z.zone_no)) / ZONE_COLS));
@@ -305,17 +308,16 @@ function buildZoneView(zones: Zone[], panels: Panel[], w: number, h: number) {
   const cellH = Math.max(1, Math.floor((h - (rows - 1) * GAP) / rows));
   const blocksFor = (z: Zone): Panel[] =>
     z.class_names.map((n) => byName.get(n) ?? { cls: n, order: 0, races: [], maxRows: 3 });
-  let scale = 2;
-  let any = false;
-  for (const z of zones) {
-    if (z.zone_type !== "results") continue;
+  const layoutFor = (z: Zone) => {
     const b = blocksFor(z);
-    if (!b.length) continue;
-    any = true;
+    if (!b.length) return { scale: 1, innerW: BASE_W };
     const contentH = b.reduce((t, p) => t + panelHeight(p.maxRows), 0) + (b.length - 1) * GAP;
-    scale = Math.min(scale, cellW / BASE_W, cellH / contentH);
-  }
-  return { rows, cellW, cellH, scale: any ? scale : 1, blocksFor };
+    const scale = Math.min(cellH / contentH, cellW / BASE_W, ZONE_MAX_SCALE);
+    return { scale, innerW: cellW / scale };
+  };
+  let minScale = ZONE_MAX_SCALE;
+  for (const z of zones) if (z.zone_type === "results") minScale = Math.min(minScale, layoutFor(z).scale);
+  return { rows, cellW, cellH, scale: minScale, blocksFor, layoutFor };
 }
 
 function ClassPanel({ panel, tick }: { panel: Panel; tick: number }) {
@@ -353,7 +355,7 @@ function ClassPanel({ panel, tick }: { panel: Panel; tick: number }) {
               const dnf = r.status === "dnf";
               return (
                 <tr key={i} style={{ height: ROW_H, background: i === 0 && !dnf ? "#fdf3c8" : undefined, fontSize: 15 }}>
-                  <td style={cell}><span style={dnf ? dnfBadge : badge}>{dnf ? "DNF" : r.position}</span></td>
+                  <td style={cell}><span data-medal={!dnf && r.position != null && r.position <= 3 ? r.position : undefined} style={dnf ? dnfBadge : placeBadge(r.position)}>{dnf ? "DNF" : r.position}</span></td>
                   <td style={{ ...cell, fontWeight: 700 }}>{r.rider_number}</td>
                   <td style={{ ...cell, overflow: "hidden", textOverflow: "ellipsis" }}>
                     {shortName(r.rider_name)}
@@ -386,4 +388,11 @@ function Notice({ children }: { children: React.ReactNode }) {
 const bar: CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", flex: "none", gap: 8 };
 const cell: CSSProperties = { padding: "0 6px", whiteSpace: "nowrap", verticalAlign: "middle" };
 const badge: CSSProperties = { display: "inline-block", minWidth: 26, lineHeight: "20px", textAlign: "center", background: "#0b5fff", color: "#fff", borderRadius: 4, fontWeight: 700, padding: "0 6px", fontSize: 14 };
+// 1st, 2nd and 3rd get gold, silver and bronze badges.
+const MEDALS: Record<number, CSSProperties> = {
+  1: { background: "linear-gradient(135deg, #ffe27a, #e0a800)", color: "#4a3600", boxShadow: "0 0 0 1px #b88a00" },
+  2: { background: "linear-gradient(135deg, #f1f4f8, #aab3be)", color: "#2b3440", boxShadow: "0 0 0 1px #8b95a1" },
+  3: { background: "linear-gradient(135deg, #e8a76b, #b8681f)", color: "#2b1500", boxShadow: "0 0 0 1px #8f4e14" },
+};
+const placeBadge = (pos: number | null): CSSProperties => (pos != null && MEDALS[pos] ? { ...badge, ...MEDALS[pos] } : badge);
 const dnfBadge: CSSProperties = { ...badge, background: "#94a3b8" };
