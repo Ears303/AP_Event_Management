@@ -199,6 +199,8 @@ export default function Manager() {
         </div>
       )}
 
+      <NewEventCard onCreated={(ev) => { setEvents((cur) => [ev, ...cur]); setEventId(ev.id); }} setMessage={setMessage} />
+
       <ScheduleCard eventId={eventId} eventDate={events.find((e) => e.id === eventId)?.start_date ?? null} setMessage={setMessage} />
 
       <div style={card}>
@@ -250,6 +252,8 @@ export default function Manager() {
           </div>
         </div>
       )}
+
+      <HoleshotsCard eventId={eventId} setMessage={setMessage} />
 
       <div style={card}>
         <h2 style={h2}>Recent imports for this event</h2>
@@ -401,6 +405,116 @@ function ScheduleCard({ eventId, eventDate, setMessage }: { eventId: string; eve
           <button style={{ ...button, marginTop: 10, opacity: res.errors.length || busy || !eventId ? 0.5 : 1 }} disabled={res.errors.length > 0 || busy || !eventId || !res.rows.length} onClick={() => void save()}>
             {busy ? "Saving..." : "Save schedule"}
           </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Create a new event (in your own organisation). The schedule can then be uploaded straight after.
+function NewEventCard({ onCreated, setMessage }: { onCreated: (ev: EventRow) => void; setMessage: (m: Message) => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [venue, setVenue] = useState("");
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
+  const [isPublic, setIsPublic] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  async function create(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    const { data, error } = await supabase.rpc("create_event", {
+      p_name: name, p_venue: venue || null, p_start: start || null, p_end: end || null, p_public: isPublic,
+    });
+    setBusy(false);
+    if (error) { setMessage({ type: "error", text: "Could not create event: " + error.message }); return; }
+    onCreated({ id: String(data), event_name: name.trim(), start_date: start || null, status: "live" });
+    setMessage({ type: "ok", text: `Event "${name.trim()}" created. Now upload its race schedule below.` });
+    setName(""); setVenue(""); setStart(""); setEnd(""); setOpen(false);
+  }
+
+  if (!open) return <div style={card}><button style={button} onClick={() => setOpen(true)}>+ New event</button></div>;
+  return (
+    <form style={card} onSubmit={(e) => void create(e)}>
+      <h2 style={h2}>New event</h2>
+      <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
+        <label>Event name<input style={{ ...input, width: "100%", boxSizing: "border-box" }} value={name} onChange={(e) => setName(e.target.value)} required placeholder="WA MX Championship - Round 4" /></label>
+        <label>Venue<input style={{ ...input, width: "100%", boxSizing: "border-box" }} value={venue} onChange={(e) => setVenue(e.target.value)} /></label>
+        <label>Start date<input type="date" style={{ ...input, width: "100%", boxSizing: "border-box" }} value={start} onChange={(e) => setStart(e.target.value)} required /></label>
+        <label>End date (if more than one day)<input type="date" style={{ ...input, width: "100%", boxSizing: "border-box" }} value={end} onChange={(e) => setEnd(e.target.value)} /></label>
+      </div>
+      <label style={{ display: "block", margin: "10px 0" }}><input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} /> Show results publicly</label>
+      <button style={busy || !name.trim() || !start ? buttonOff : button} disabled={busy || !name.trim() || !start}>{busy ? "Creating..." : "Create event"}</button>{" "}
+      <button type="button" style={{ ...button, background: "#475569" }} onClick={() => setOpen(false)}>Cancel</button>
+    </form>
+  );
+}
+
+type HsRace = { id: string; race_number: number | null; moto: number | null; classes: { class_name: string } | { class_name: string }[] | null };
+type HsRow = { id: string; rider_number: number; rider_name: string; prize_amount: number | null; races: { race_number: number | null } | { race_number: number | null }[] | null; classes: { class_name: string } | { class_name: string }[] | null };
+const first = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? v[0] ?? null : v);
+
+// Holeshot entry: only races marked "Holeshot" in the schedule are offered. One holeshot per race.
+function HoleshotsCard({ eventId, setMessage }: { eventId: string; setMessage: (m: Message) => void }) {
+  const [races, setRaces] = useState<HsRace[]>([]);
+  const [saved, setSaved] = useState<HsRow[]>([]);
+  const [raceId, setRaceId] = useState("");
+  const [num, setNum] = useState("");
+  const [rname, setRname] = useState("");
+  const [prize, setPrize] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!eventId) { setRaces([]); setSaved([]); return; }
+    const r = await supabase.from("races").select("id,race_number,moto,classes(class_name)").eq("event_id", eventId).eq("holeshot", true).order("race_number");
+    const h = await supabase.from("holeshots").select("id,rider_number,rider_name,prize_amount,races(race_number),classes(class_name)").eq("event_id", eventId).order("entered_at", { ascending: false });
+    const rows = (Array.isArray(r.data) ? r.data : []) as unknown as HsRace[];
+    setRaces(rows);
+    setSaved((Array.isArray(h.data) ? h.data : []) as unknown as HsRow[]);
+    setRaceId((cur) => (rows.some((x) => x.id === cur) ? cur : rows[0]?.id ?? ""));
+  }, [eventId]);
+  useEffect(() => { void load(); }, [load]);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    const { error } = await supabase.rpc("save_holeshot", {
+      p_race: raceId, p_rider_number: Number(num), p_rider_name: rname || null, p_prize: prize ? Number(prize) : null,
+    });
+    setBusy(false);
+    if (error) { setMessage({ type: "error", text: "Could not save holeshot: " + error.message }); return; }
+    setMessage({ type: "ok", text: "Holeshot saved." });
+    setNum(""); setRname(""); setPrize("");
+    await load();
+  }
+
+  const label = (r: HsRace) => `Race ${r.race_number} - ${first(r.classes)?.class_name ?? ""}${r.moto ? ` (Moto ${r.moto})` : ""}`;
+  const done = new Set(saved.map((h) => first(h.races)?.race_number));
+  return (
+    <div style={card}>
+      <h2 style={h2}>Holeshots</h2>
+      {races.length === 0 ? (
+        <div style={{ color: "#64748b" }}>No races are marked for a holeshot. Put Y in the Holeshot column of the schedule and upload it again.</div>
+      ) : (
+        <form onSubmit={(e) => void save(e)} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
+          <label>Race<br /><select style={input} value={raceId} onChange={(e) => setRaceId(e.target.value)} aria-label="Holeshot race">
+            {races.map((r) => <option key={r.id} value={r.id}>{label(r)}{done.has(r.race_number) ? " - done" : ""}</option>)}
+          </select></label>
+          <label>Rider no<br /><input style={{ ...input, width: 90 }} inputMode="numeric" value={num} onChange={(e) => setNum(e.target.value.replace(/\D/g, ""))} aria-label="Holeshot rider number" required /></label>
+          <label>Name (if not found)<br /><input style={input} value={rname} onChange={(e) => setRname(e.target.value)} /></label>
+          <label>Prize $ (optional)<br /><input style={{ ...input, width: 100 }} inputMode="decimal" value={prize} onChange={(e) => setPrize(e.target.value.replace(/[^\d.]/g, ""))} /></label>
+          <button style={busy || !num ? buttonOff : button} disabled={busy || !num}>{busy ? "Saving..." : "Save holeshot"}</button>
+        </form>
+      )}
+      {saved.length > 0 && (
+        <div style={{ overflowX: "auto", marginTop: 12 }}>
+          <table style={{ borderCollapse: "collapse", width: "100%" }}>
+            <thead><tr>{["Race", "Class", "No", "Rider", "Prize"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+            <tbody>{saved.map((h) => (
+              <tr key={h.id}><td style={td}>{first(h.races)?.race_number}</td><td style={td}>{first(h.classes)?.class_name}</td><td style={td}>{h.rider_number}</td><td style={td}>{h.rider_name}</td><td style={td}>{h.prize_amount != null ? "$" + h.prize_amount : "-"}</td></tr>
+            ))}</tbody>
+          </table>
         </div>
       )}
     </div>
