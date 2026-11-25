@@ -5,11 +5,12 @@ const check = (n, ok, e = "") => { ok ? pass++ : fail++; console.log((ok ? "PASS
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 (async () => {
   let sock; const srv = net.createServer((c) => { sock = c; c.write(cap); }); await new Promise((r) => srv.listen(0, "127.0.0.1", r));
-  const calls = []; const real = Date.now; let off = 0; Date.now = () => real() + off;
+  const calls = [], statusCalls = []; const real = Date.now; let off = 0; Date.now = () => real() + off;
   const b = createBridge({ cfg: { eventId: "e", feedHost: "127.0.0.1", feedPort: srv.address().port, pushEverySeconds: 0.1 }, log: () => {},
-    rpc: async (fn) => { calls.push(fn); } });
+    rpc: async (fn) => { if (fn !== "live_status_update") calls.push(fn); statusCalls.push(fn); } });
   b.start(); await sleep(2500);
   check("live results sent while active", calls.filter((c) => c === "live_update_race").length === 1, calls.join());
+  check("race clock sent to live_status_update", statusCalls.includes("live_status_update"));
   off = 25000; await sleep(1500);
   check("unchanged data refreshes the live flag after 20 s", calls.filter((c) => c === "live_update_race").length === 2, calls.join());
   off = 6 * 60000; await sleep(1500);

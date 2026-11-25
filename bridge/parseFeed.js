@@ -53,7 +53,7 @@ class FeedState {
     // Every entry is stamped with the "dump" it arrived in, so when a new session ($B id) starts we can drop the old
     // race's riders without caring whether $B arrives before or after that race's $G/$H blocks.
     this.G = new Map(); this.H = new Map(); this.SP = new Map(); this.A = new Map(); this.C = new Map();
-    this.race = null; this.raceName = ""; this.session = null; this.flag = ""; this.raceTime = "";
+    this.race = null; this.raceName = ""; this.session = null; this.flag = ""; this.raceTime = ""; this.timeToGo = ""; this.timeOfDay = ""; this.lapsToGo = null; this.hasClock = false;
     this.lastType = ""; this.dump = 0; this.dirty = false; this.version = 0; this.changes = [];
   }
   // Feed raw bytes/text from the socket; complete lines are parsed, partial ones kept for next time.
@@ -69,7 +69,9 @@ class FeedState {
   line(line) {
     if (line[0] !== "$") return;
     const f = splitLine(line); const type = f[0].slice(1);
-    if (type === "F") { this.flag = (f[5] || "").trim(); this.raceTime = f[4] || ""; this.lastType = "F"; return; } // heartbeat
+    if (type === "F") { // heartbeat: laps to go, time to go, time of day, race time, flag
+      this.lapsToGo = f[1] === "" ? null : Number(f[1]); this.timeToGo = f[2] || ""; this.timeOfDay = f[3] || ""; this.raceTime = f[4] || ""; this.flag = (f[5] || "").trim(); this.hasClock = true; this.lastType = "F"; return;
+    }
     if (type === "H" && this.lastType !== "H") this.dump++;   // a new full update starts with the $H block
     this.lastType = type;
     const st = (o) => ({ ...o, dump: this.dump });

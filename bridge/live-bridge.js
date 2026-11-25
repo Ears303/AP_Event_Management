@@ -11,7 +11,7 @@ function createBridge({ cfg, rpc, log = console.log, connect = (h, p) => net.con
   const quietMs = (cfg.liveTimeoutMinutes ?? 5) * 60000;
   const pushEvery = (cfg.pushEverySeconds ?? 2) * 1000;
   const rawLog = cfg.saveRaw ? path.join(__dirname, "feed-raw.log") : null;
-  let lastChangeAt = Date.now(), ended = false, lastSent = 0, lastPush = 0, lastHash = "", lastRace = null, sock = null, stopped = false, timer = null, reconnect = null, bytes = 0;
+  let lastStatus = 0, statusFailed = false, lastChangeAt = Date.now(), ended = false, lastSent = 0, lastPush = 0, lastHash = "", lastRace = null, sock = null, stopped = false, timer = null, reconnect = null, bytes = 0;
 
   async function maybePush(force) {
     if (!state.dirty && !force) return;
@@ -36,7 +36,18 @@ function createBridge({ cfg, rpc, log = console.log, connect = (h, p) => net.con
   }
 
   // No lap crossings for a while = nothing is being timed: tell the app the race is no longer live (results stay provisional).
+  // The feed's clock (time to go, flag) every 5 s, for the enduro display's "time remaining".
+  async function sendStatus() {
+    if (!state.hasClock || state.race == null || Date.now() - lastStatus < 5000) return;
+    lastStatus = Date.now();
+    try {
+      await rpc("live_status_update", { p_event: cfg.eventId, p_race_number: state.race, p_flag: state.flag, p_time_to_go: state.timeToGo, p_race_time: state.raceTime, p_laps_to_go: state.lapsToGo });
+      statusFailed = false;
+    } catch (e) { if (!statusFailed) log("Could not send the race clock (run 008_enduro_display.sql?): " + (e && e.message ? e.message : e)); statusFailed = true; }
+  }
+
   async function tickAll() {
+    void sendStatus();
     const quiet = lastSent > 0 && Date.now() - lastChangeAt > quietMs;
     if (quiet && !ended) {
       try { await rpc("live_end", { p_event: cfg.eventId }); ended = true; log(`No timing activity for ${quietMs / 60000} min - race marked as no longer live.`); }

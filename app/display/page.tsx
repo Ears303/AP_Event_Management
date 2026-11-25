@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { supabase, supabaseConfigured } from "../../lib/supabase";
+import EnduroView from "./EnduroView";
 
 // Trailer / public display. One panel per class; every rider is shown at once and the whole
 // screen is scaled so everything fits. Each panel rotates through that class's published races
@@ -115,6 +116,7 @@ export default function Display() {
   const [next, setNext] = useState<Upcoming[]>([]);
   const [zones, setZones] = useState<Zone[]>([]);
   const [liveClasses, setLiveClasses] = useState<string[]>([]);
+  const [mode, setMode] = useState<"motocross" | "enduro">("motocross");
   const [sponsors, setSponsors] = useState<Sponsor[]>([]);
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
@@ -136,6 +138,11 @@ export default function Display() {
       if (evErr) { setError(evErr.message); setLoaded(true); return; }
       const ev = (evs?.[0] ?? null) as EventInfo | null;
       setEvent(ev);
+      if (ev) { // Display type is set on the screen layout page (column added by 008; missing = motocross)
+        const dm = await supabase.from("events").select("display_mode").eq("id", ev.id).limit(1);
+        if (stop) return;
+        setMode(Array.isArray(dm.data) && (dm.data[0] as { display_mode?: string } | undefined)?.display_mode === "enduro" ? "enduro" : "motocross");
+      }
       if (!ev) { setPanels([]); setNotes([]); setError(""); setLoaded(true); return; }
 
       const all: Row[] = [];
@@ -230,6 +237,8 @@ export default function Display() {
   if (!supabaseConfigured) {
     return <Frame><Notice>Supabase settings are missing. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel, then redeploy.</Notice></Frame>;
   }
+
+  if (mode === "enduro" && event) return <Frame><EnduroView event={event} /></Frame>;
 
   const layout = bestLayout(zones.length ? [] : panels, size.w - 16, size.h - 8);
   const zoneMode = zones.length > 0;

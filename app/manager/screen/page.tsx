@@ -29,6 +29,7 @@ function Editor() {
   const [sFile, setSFile] = useState<File | null>(null);
   const [sBusy, setSBusy] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState<"motocross" | "enduro">("motocross");
   const [message, setMessage] = useState<Message | null>(null);
 
   useEffect(() => {
@@ -62,6 +63,8 @@ function Editor() {
       const o = one(x.sponsors); if (o) list.push({ id: x.sponsor_id, name: o.sponsor_name, image: o.image_url ?? "" });
     }
     setSponsors(list);
+    const dm = await supabase.from("events").select("display_mode").eq("id", eventId).limit(1); // column added by 008
+    setMode(Array.isArray(dm.data) && (dm.data[0] as { display_mode?: string } | undefined)?.display_mode === "enduro" ? "enduro" : "motocross");
   }, [eventId]);
   useEffect(() => { void load(); }, [load]);
 
@@ -102,6 +105,12 @@ function Editor() {
     const { error } = await supabase.rpc("save_display_zones", { p_event: eventId, p_zones: zones });
     setBusy(false);
     setMessage(error ? { type: "error", text: "Could not save layout: " + error.message } : { type: "ok", text: zones.length ? `Layout saved (${zones.length} areas).` : "Layout cleared - the display will arrange classes automatically." });
+  }
+
+  async function saveMode(next: "motocross" | "enduro") {
+    setMode(next);
+    const { error } = await supabase.rpc("set_display_mode", { p_event: eventId, p_mode: next });
+    setMessage(error ? { type: "error", text: "Could not change the display type: " + error.message + " (has 008_enduro_display.sql been run?)" } : { type: "ok", text: next === "enduro" ? "Display set to Enduro / Pony Express: live results list with time remaining." : "Display set to Motocross: class tiles." });
   }
 
   const BUCKET = "sponsor-logos";
@@ -164,6 +173,12 @@ function Editor() {
         </div>
         <button style={eventId && classes.length ? button : buttonOff} disabled={!eventId || !classes.length} onClick={autoFill}>Auto-fill by class group</button>{" "}
         <button style={{ ...button, background: "#475569" }} onClick={() => setAreas(blank())}>Clear all</button>
+      </div>
+
+      <div style={card}>
+        <h2 style={h2}>Display type</h2>
+        <label style={{ display: "block", padding: "2px 0" }}><input type="radio" name="display-type" checked={mode === "motocross"} disabled={!eventId} onChange={() => void saveMode("motocross")} aria-label="Motocross display" /> Motocross - class tiles in the areas below</label>
+        <label style={{ display: "block", padding: "2px 0" }}><input type="radio" name="display-type" checked={mode === "enduro"} disabled={!eventId} onChange={() => void saveMode("enduro")} aria-label="Enduro display" /> Enduro / Pony Express - one live results list (Rider, Class, Total Time, Laps, Best Time) with time remaining. The areas below are not used.</label>
       </div>
 
       <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", maxWidth: 1100, marginBottom: 16 }}>

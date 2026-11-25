@@ -26,3 +26,9 @@ Send that file (and a screenshot of the window) so the problem can be replayed e
 A race is marked LIVE while lap crossings keep arriving. After 5 minutes with no change the bridge marks it as no longer
 live (results stay provisional until the final CSV is imported). Change with `"liveTimeoutMinutes"` in config.json.
 The feed shows whichever session the timing software has open, so open the current race there.
+
+## Enduro / Pony Express
+Run `supabase/008_enduro_display.sql`, then on the Screen layout page choose Display type: Enduro. The display then shows
+only the live results (Rider, Class, Total Time, Laps, Best Time) with the race clock at the bottom. The bridge sends the
+timing software's clock every 5 seconds; if the timing software counts down (time to go) it shows TIME REMAINING,
+otherwise it shows the elapsed RACE TIME.
