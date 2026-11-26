@@ -11,7 +11,7 @@ Runs on a PC on the same network as the MyLaps timing PC.
 4. In MyLaps Scoreboard Settings tick Send Race Results and Send Qualify Results.
 
 ## Each event
-Double-click **start-bridge.bat** and leave the window open. The first time it asks for the Supabase URL and anon key,
+Double-click **start-bridge.bat** and leave the window open. At start-up it shows the event and gives you 6 seconds to press C to pick a different one. The first time it asks for the Supabase URL and anon key,
 your timing login, the event name and the feed address, and saves them to `config.json`. After that it just starts.
 It reconnects by itself if the feed or internet drops. If it stops, the window offers R to restart.
 

@@ -255,6 +255,29 @@ def first_run_setup(path):
     return cfg
 
 
+def save_config(path, cfg):
+    keep = dict(cfg)
+    if keep.get("eventName"):
+        keep["eventId"] = ""  # the name is looked up fresh each start, so changing it later is just an edit
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(keep, fh, indent=2)
+
+
+def wants_change(seconds=6):
+    """Give the operator a few seconds to press C to pick a different event; otherwise carry on."""
+    try:
+        import msvcrt  # Windows only
+    except ImportError:
+        return False
+    say(f"Press C within {seconds} seconds to change the event (or wait to continue)...")
+    end = time.time() + seconds
+    while time.time() < end:
+        if msvcrt.kbhit() and msvcrt.getwch().lower() == "c":
+            return True
+        time.sleep(0.1)
+    return False
+
+
 def main(argv):
     path = os.path.abspath(argv[1]) if len(argv) > 1 else os.path.join(HERE, "config.json")
     cfg = json.load(open(path, encoding="utf-8-sig")) if os.path.exists(path) else first_run_setup(path)
@@ -269,18 +292,35 @@ def main(argv):
         say("Sign-in failed: " + str(e) + "\nCheck the email, password and anon key in config.json.")
         return 1
     say("Signed in as " + cfg["email"])
-    if not cfg.get("eventId"):
-        try:
-            ev = sb.find_events(cfg.get("eventName", ""))
-        except RuntimeError as e:
-            ev, _ = [], say("Event lookup failed: " + str(e))
+    while True:
+        ev_name = cfg.get("eventName", "")
+        ev = []
+        if cfg.get("eventId") and not ev_name:
+            ev = [{"id": cfg["eventId"], "event_name": "(event id " + cfg["eventId"] + ")"}]
+        else:
+            try:
+                ev = sb.find_events(ev_name)
+            except RuntimeError as e:
+                say("Event lookup failed: " + str(e))
         if not ev:
-            say("Could not find the event. Put its id in config.json as eventId.")
-            return 1
+            say(f"Could not find an event matching \"{ev_name}\".")
+            new = ask("Type part of the event name (or Enter to quit)")
+            if not new:
+                return 1
+            cfg["eventName"], cfg["eventId"] = new, ""
+            save_config(path, cfg)
+            continue
         cfg["eventId"] = ev[0]["id"]
         say(f"Using event \"{ev[0]['event_name']}\" ({cfg['eventId']})")
         if len(ev) > 1:
-            say("  (other matches: " + ", ".join(e["event_name"] for e in ev[1:]) + ") - set eventId to be sure")
+            say("  (other matches: " + ", ".join(e["event_name"] for e in ev[1:]) + ") - type a longer name to be exact")
+        if wants_change():
+            new = ask("New event name (part of the name is fine)")
+            if new:
+                cfg["eventName"], cfg["eventId"] = new, ""
+                save_config(path, cfg)
+                continue
+        break
     bridge = Bridge(cfg, sb.rpc)
     try:
         bridge.run_forever()
